@@ -1,0 +1,32 @@
+# Built files and cache
+*.apk
+*.aar
+*.aab
+*.dex
+*.class
+bin/
+build/
+app/build/
+.gradle/
+.kotlin/
+.artifacts/
+
+# Local configuration & environment
+local.properties
+.navigation/
+captures/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+.out
+
+# Keystore files (Security)
+*.jks
+*.keystore
+
+# OS generated files
+.DS_Store
+Thumbs.db

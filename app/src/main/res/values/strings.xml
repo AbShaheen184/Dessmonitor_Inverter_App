@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DessMonitor SmartESS</string>
+    <string name="home_title">Smart ESS Dashboard</string>
+    <string name="loading_devices">Loading device data...</string>
+    <string name="no_devices">No devices found</string>
+    
+    <!-- Sensor titles from Python const.py -->
+    <string name="sensor_output_power">Output Power</string>
+    <string name="sensor_battery_power">Battery Power</string>
+    <string name="sensor_solar_power">Solar Power</string>
+    <string name="sensor_grid_power">Grid Power</string>
+    <string name="sensor_state_of_charge">State of Charge</string>
+</resources>
