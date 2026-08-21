@@ -29,6 +29,31 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     private val _lastUpdateTime = MutableLiveData<Long>(0L)
     val lastUpdateTime: LiveData<Long> = _lastUpdateTime
 
+    // Theme Settings
+    private val _useSystemTheme = MutableLiveData<Boolean>(prefs.getBoolean("use_system_theme", true))
+    val useSystemTheme: LiveData<Boolean> = _useSystemTheme
+
+    private val _isDarkModeManual = MutableLiveData<Boolean>(prefs.getBoolean("is_dark_mode_manual", false))
+    val isDarkModeManual: LiveData<Boolean> = _isDarkModeManual
+
+    // Graph Palettes
+    val predefinedPalettes = listOf(
+        listOf("#FFD600", "#00E676", "#2979FF", "#FF1744", "#D500F9"), // Vivid
+        listOf("#00ACC1", "#00796B", "#0288D1", "#3949AB", "#5E35B1"), // Ocean
+        listOf("#43A047", "#7CB342", "#C0CA33", "#FDD835", "#FB8C00"), // Nature
+        listOf("#F48FB1", "#CE93D8", "#90CAF9", "#80CBC4", "#FFF59D"), // Pastel
+        listOf("#E91E63", "#9C27B0", "#673AB7", "#3F51B5", "#2196F3")  // Retro
+    )
+
+    private val _selectedPaletteIndex = MutableLiveData<Int>(prefs.getInt("selected_palette_index", 0))
+    val selectedPaletteIndex: LiveData<Int> = _selectedPaletteIndex
+
+    private val _customPalette = MutableLiveData<List<String>>(
+        gson.fromJson(prefs.getString("custom_palette", null), object : TypeToken<List<String>>() {}.type) 
+        ?: listOf("#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF")
+    )
+    val customPalette: LiveData<List<String>> = _customPalette
+
     private val _isLoggedIn = MutableLiveData<Boolean>(false)
     val isLoggedIn: LiveData<Boolean> = _isLoggedIn
 
@@ -104,6 +129,35 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         }
         setTrendsSensors(setOf(trendName))
         setTrendsDays(days)
+    }
+
+    fun setUseSystemTheme(use: Boolean) {
+        _useSystemTheme.value = use
+        prefs.edit().putBoolean("use_system_theme", use).apply()
+    }
+
+    fun setIsDarkModeManual(isDark: Boolean) {
+        _isDarkModeManual.value = isDark
+        prefs.edit().putBoolean("is_dark_mode_manual", isDark).apply()
+    }
+
+    fun setSelectedPaletteIndex(index: Int) {
+        _selectedPaletteIndex.value = index
+        prefs.edit().putInt("selected_palette_index", index).apply()
+    }
+
+    fun setCustomPalette(colors: List<String>) {
+        _customPalette.value = colors
+        prefs.edit().putString("custom_palette", gson.toJson(colors)).apply()
+    }
+
+    fun getActivePalette(): List<String> {
+        val index = selectedPaletteIndex.value ?: 0
+        return if (index >= 0 && index < predefinedPalettes.size) {
+            predefinedPalettes[index]
+        } else {
+            customPalette.value ?: predefinedPalettes[0]
+        }
     }
 
     init {

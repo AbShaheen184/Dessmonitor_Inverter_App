@@ -1,17 +1,28 @@
 package com.dessmonitor.smartess.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,7 +42,7 @@ private fun categorizeSetting(name: String): String {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     repository: DeviceRepository,
@@ -214,9 +225,12 @@ fun SettingsScreen(
     }
 
     val categories = remember(fields) {
-        fields.map { it.category }.distinct().sortedBy { 
+        val list = fields.map { it.category }.distinct().toMutableList()
+        if (!list.contains("Themes")) list.add("Themes")
+        list.sortedBy { 
             // Custom order
             when(it) {
+                "Themes" -> -1
                 "System" -> 0
                 "PV / Solar" -> 1
                 "Output" -> 2
@@ -292,7 +306,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.secondary
                             )
-                            if (isSyncing) {
+                            if (isSyncing && selectedCategory != "Themes") {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
                                     Spacer(Modifier.width(8.dp))
@@ -301,19 +315,173 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    items(filteredFields) { field ->
-                        SettingsItem(field = field) { newValue ->
-                            scope.launch {
-                                repository.setControlValue(device, field.id, newValue)
-                            }
+                    if (selectedCategory == "Themes") {
+                        item {
+                            ThemeSettingsView(repository = repository)
                         }
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    } else {
+                        items(filteredFields) { field ->
+                            SettingsItem(field = field) { newValue ->
+                                scope.launch {
+                                    repository.setControlValue(device, field.id, newValue)
+                                }
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        }
                     }
                     item { Spacer(modifier = Modifier.height(110.dp)) }
                 }
             }
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ThemeSettingsView(repository: DeviceRepository) {
+    val useSystemTheme by repository.useSystemTheme.observeAsState(true)
+    val isDarkModeManual by repository.isDarkModeManual.observeAsState(false)
+    val selectedPaletteIndex by repository.selectedPaletteIndex.observeAsState(0)
+    val customPalette by repository.customPalette.observeAsState(emptyList())
+
+    val paletteNames = listOf("Vivid", "Ocean", "Nature", "Pastel", "Retro")
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        // App Style
+        Text("App Style", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        ListItem(
+            headlineContent = { Text("Follow System Theme") },
+            trailingContent = {
+                Switch(checked = useSystemTheme, onCheckedChange = { repository.setUseSystemTheme(it) })
+            }
+        )
+        
+        if (!useSystemTheme) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                FilterChip(
+                    selected = !isDarkModeManual,
+                    onClick = { repository.setIsDarkModeManual(false) },
+                    label = { Text("Light Mode") },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = isDarkModeManual,
+                    onClick = { repository.setIsDarkModeManual(true) },
+                    label = { Text("Dark Mode") },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Graph Palettes
+        Text("Graph Color Palettes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        repository.predefinedPalettes.forEachIndexed { index, colors ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { repository.setSelectedPaletteIndex(index) }
+                    .background(if (selectedPaletteIndex == index) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent)
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(selected = selectedPaletteIndex == index, onClick = { repository.setSelectedPaletteIndex(index) })
+                Text(paletteNames[index], modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    colors.forEach { hex ->
+                        Box(modifier = Modifier.size(24.dp).clip(CircleShape).background(Color(android.graphics.Color.parseColor(hex))))
+                    }
+                }
+            }
+        }
+
+        // Custom Palette Option
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { repository.setSelectedPaletteIndex(-1) }
+                .background(if (selectedPaletteIndex == -1) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else Color.Transparent)
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(selected = selectedPaletteIndex == -1, onClick = { repository.setSelectedPaletteIndex(-1) })
+            Text("Custom", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.width(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                customPalette.forEachIndexed { colorIdx, hex ->
+                    var showPicker by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color(android.graphics.Color.parseColor(hex)))
+                            .border(1.dp, Color.Gray, CircleShape)
+                            .clickable { showPicker = true }
+                    )
+                    
+                    if (showPicker) {
+                        ColorPickerDialog(
+                            initialColor = hex,
+                            onColorSelected = { newHex ->
+                                val newList = customPalette.toMutableList()
+                                newList[colorIdx] = newHex
+                                repository.setCustomPalette(newList)
+                                showPicker = false
+                            },
+                            onDismiss = { showPicker = false }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ColorPickerDialog(initialColor: String, onColorSelected: (String) -> Unit, onDismiss: () -> Unit) {
+    val basicColors = listOf(
+        "#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF",
+        "#FF5722", "#795548", "#607D8B", "#E91E63", "#9C27B0", "#673AB7",
+        "#3F51B5", "#2196F3", "#03A9F4", "#00BCD4", "#009688", "#4CAF50",
+        "#8BC34A", "#CDDC39", "#FFEB3B", "#FFC107", "#FF9800", "#FF5722"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pick a Color") },
+        text = {
+            Column {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    basicColors.forEach { hex ->
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .padding(4.dp)
+                                .clip(CircleShape)
+                                .background(Color(android.graphics.Color.parseColor(hex)))
+                                .clickable { onColorSelected(hex) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 data class ControlField(

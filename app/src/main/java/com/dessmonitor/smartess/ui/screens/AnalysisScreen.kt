@@ -327,15 +327,7 @@ fun AnalysisScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                val colors = listOf(
-                    Color(android.graphics.Color.parseColor("#FFD600")), // PV - Vivid Yellow
-                    Color(android.graphics.Color.parseColor("#00E676")), // Load - Vivid Green
-                    Color(android.graphics.Color.parseColor("#2979FF")), // Grid - Vivid Blue
-                    Color(android.graphics.Color.parseColor("#FF1744")), // Battery - Vivid Red
-                    Color(0xFFD500F9), // Purple
-                    Color(0xFF00E5FF)  // Cyan
-                )
-                
+                val activePaletteColors = repository.getActivePalette().map { Color(android.graphics.Color.parseColor(it)) }
                 val chartAxisColor = MaterialTheme.colorScheme.onSurface.toArgb()
                 val chartGridColor = MaterialTheme.colorScheme.outlineVariant.toArgb()
 
@@ -414,11 +406,11 @@ fun AnalysisScreen(
 
                                     val dataSets = selectedSensors.mapIndexed { index, sensor ->
                                         val sensorColor = when {
-                                            sensor.contains("PV", true) -> android.graphics.Color.parseColor("#00E676")
-                                            sensor.contains("Output", true) || sensor.contains("Load", true) -> android.graphics.Color.parseColor("#FFD600")
-                                            sensor.contains("Grid", true) -> android.graphics.Color.parseColor("#2979FF")
-                                            sensor.contains("Discharge", true) || sensor.contains("Battery", true) -> android.graphics.Color.parseColor("#FF1744")
-                                            else -> colors[index % colors.size].toArgb()
+                                            sensor.contains("PV", true) -> activePaletteColors[0].toArgb()
+                                            sensor.contains("Output", true) || sensor.contains("Load", true) -> activePaletteColors[1].toArgb()
+                                            sensor.contains("Grid", true) -> activePaletteColors[2].toArgb()
+                                            sensor.contains("Discharge", true) || sensor.contains("Battery", true) -> activePaletteColors[3].toArgb()
+                                            else -> if (activePaletteColors.size > 4) activePaletteColors[4].toArgb() else activePaletteColors[index % activePaletteColors.size].toArgb()
                                         }
                                         LineDataSet(getEntriesForSensor(sensor), sensor).apply {
                                             color = sensorColor

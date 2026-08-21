@@ -94,14 +94,20 @@ fun MainScreen(repository: DeviceRepository) {
                     label = { Text("Themes") },
                     selected = false,
                     icon = { Icon(Icons.Default.Palette, null) },
-                    onClick = { /* TODO: Implement */ },
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate(Screen.Settings.route)
+                    },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
                 NavigationDrawerItem(
                     label = { Text("App Settings") },
                     selected = false,
                     icon = { Icon(Icons.Default.AppSettingsAlt, null) },
-                    onClick = { /* TODO: Implement */ },
+                    onClick = {
+                        scope.launch { drawerState.close() }
+                        navController.navigate(Screen.Settings.route)
+                    },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
                 Spacer(modifier = Modifier.weight(1f))
