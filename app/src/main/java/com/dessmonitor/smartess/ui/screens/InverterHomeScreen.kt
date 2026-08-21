@@ -17,18 +17,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
@@ -39,7 +46,8 @@ import kotlinx.coroutines.launch
 fun InverterHomeScreen(
     repository: DeviceRepository,
     onSettingsClick: () -> Unit,
-    onTrendsClick: (String) -> Unit
+    onTrendsClick: (String) -> Unit,
+    onMenuClick: () -> Unit = {}
 ) {
     val devices by repository.devices.observeAsState(emptyList())
     val selectedStats by repository.selectedStats.observeAsState(emptyList())
@@ -69,6 +77,31 @@ fun InverterHomeScreen(
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    
+    // Pull to Refresh State
+    val pullToRefreshState = rememberPullToRefreshState()
+    val lastUpdate by repository.lastUpdateTime.observeAsState(0L)
+    val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()) }
+    val lastUpdateText = if (lastUpdate > 0) "Last update: ${timeFormatter.format(java.util.Date(lastUpdate))}" else "Never updated"
+
+    val pullOffset by animateDpAsState(
+        targetValue = when {
+            pullToRefreshState.isRefreshing -> 80.dp
+            pullToRefreshState.progress > 0f -> (80.dp * pullToRefreshState.progress).coerceAtMost(120.dp)
+            else -> 0.dp
+        },
+        label = "PullOffset"
+    )
+
+    if (pullToRefreshState.isRefreshing) {
+        LaunchedEffect(true) {
+            isRefreshing = true
+            syncError = null
+            repository.loadDevices().onFailure { syncError = it.message }
+            isRefreshing = false
+            pullToRefreshState.endRefresh()
+        }
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -88,6 +121,11 @@ fun InverterHomeScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
                     }
                 },
                 actions = {
@@ -124,11 +162,54 @@ fun InverterHomeScreen(
     ) { padding ->
         val scrollState = rememberScrollState()
         
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .nestedScroll(pullToRefreshState.nestedScrollConnection)
+        ) {
+            // Pull to Refresh UI (Behind content, visible when pushed down)
+            if (pullToRefreshState.progress > 0f || pullToRefreshState.isRefreshing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(pullOffset)
+                        .padding(top = 16.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    if (pullToRefreshState.isRefreshing) {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                    } else {
+                        val rotation by animateFloatAsState(if (pullToRefreshState.progress >= 1f) 180f else 0f)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.ArrowDownward,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .rotate(rotation),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = if (pullToRefreshState.progress >= 1f) "Release to refresh" else "Pull down to refresh",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = lastUpdateText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .offset(y = pullOffset)
+                    .padding(horizontal = 16.dp)
                     .verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -194,9 +275,6 @@ fun InverterHomeScreen(
                         }
                     }
                     
-                    // Reorderable Stats Grid
-                    // Since it's inside a verticalScroll Column, we can't use LazyVerticalGrid easily without fixed height.
-                    // We'll stick to Row/Column and add move buttons in the "Customize" dialog for simpler reordering.
                     val statChunks = selectedStats.chunked(2)
                     statChunks.forEach { chunk ->
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -227,31 +305,6 @@ fun InverterHomeScreen(
                         Text("No stats selected. Tap Customize to add.", style = MaterialTheme.typography.bodySmall)
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
-                    
-                    Button(
-                        onClick = {
-                            isRefreshing = true
-                            syncError = null
-                            scope.launch {
-                                repository.loadDevices().onFailure { syncError = it.message }
-                                isRefreshing = false
-                            }
-                        },
-                        enabled = !isRefreshing,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = MaterialTheme.shapes.extraLarge,
-                        elevation = ButtonDefaults.elevatedButtonElevation(defaultElevation = 2.dp)
-                    ) {
-                        if (isRefreshing) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 3.dp)
-                            Spacer(Modifier.width(12.dp))
-                        }
-                        Text(if (isRefreshing) "Syncing..." else "Refresh Live Data", fontWeight = FontWeight.Bold)
-                    }
-
                     syncError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
                     }
@@ -269,6 +322,8 @@ fun InverterHomeScreen(
                         color = MaterialTheme.colorScheme.outline,
                         modifier = Modifier.padding(top = 4.dp)
                     )
+
+                    Spacer(modifier = Modifier.height(110.dp))
                 }
             }
         }
@@ -282,7 +337,7 @@ fun InverterHomeScreen(
                 text = {
                     Box(modifier = Modifier.heightIn(max = 450.dp)) {
                         Column {
-                            Text("Current Order (Drag to reorder functionality coming, use up/down for now)", style = MaterialTheme.typography.labelSmall)
+                            Text("Current Order", style = MaterialTheme.typography.labelSmall)
                             Spacer(Modifier.height(8.dp))
                             
                             LazyColumn(modifier = Modifier.weight(1f)) {
@@ -370,95 +425,64 @@ fun EnergyFlowSection(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(380.dp)
-            .padding(vertical = 8.dp),
+            .height(500.dp)
+            .padding(vertical = 16.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Animated Flow Dots
-        val infiniteTransition = rememberInfiniteTransition()
-        val progress by infiniteTransition.animateFloat(
+        val infiniteTransition = rememberInfiniteTransition(label = "EnergyFlow")
+        val phase by infiniteTransition.animateFloat(
             initialValue = 0f,
-            targetValue = 1f,
+            targetValue = 100f,
             animationSpec = infiniteRepeatable(
                 animation = tween(2000, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart
-            )
+            ),
+            label = "FlowPhase"
         )
 
-        Canvas(modifier = Modifier.size(240.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2, size.height / 2)
-            val strokeWidth = 3.dp.toPx()
-            val dotRadius = 4.dp.toPx()
-            val lineColor = Color.Gray.copy(alpha = 0.2f)
+            val strokeWidth = 2.dp.toPx()
+            val dashLength = 6.dp.toPx()
+            val gapLength = 6.dp.toPx()
+            val baseLineColor = Color.Gray.copy(alpha = 0.15f)
+            val nodeDist = 130.dp.toPx()
+            val centerRadius = 65.dp.toPx()
+            val nodeRadius = 38.dp.toPx()
 
-            // 1. PV (Top) -> Center
-            val pvPos = Offset(size.width / 2, 0f)
-            drawLine(lineColor, pvPos, center, strokeWidth)
-            if (pvPowerValue > 10) {
-                drawCircle(Color(0xFFFFB100), dotRadius, pvPos + (center - pvPos) * progress)
+            fun drawFlowLine(start: Offset, end: Offset, color: Color, isActive: Boolean, reverse: Boolean = false) {
+                drawLine(baseLineColor, start, end, strokeWidth)
+                if (isActive) {
+                    val path = Path().apply {
+                        moveTo(start.x, start.y)
+                        lineTo(end.x, end.y)
+                    }
+                    val effect = PathEffect.dashPathEffect(
+                        intervals = floatArrayOf(dashLength, gapLength),
+                        phase = if (reverse) phase * 2 else -phase * 2
+                    )
+                    drawPath(path = path, color = color.copy(alpha = 0.6f), style = Stroke(width = strokeWidth * 1.5f, pathEffect = effect))
+                    drawPath(path = path, color = color.copy(alpha = 0.2f), style = Stroke(width = strokeWidth * 4f, pathEffect = effect))
+                }
             }
 
-            // 2. Grid (Left) -> Center
-            val gridPos = Offset(0f, size.height / 2)
-            drawLine(lineColor, gridPos, center, strokeWidth)
-            if (gridPowerValue > 10) {
-                drawCircle(Color(0xFF2196F3), dotRadius, gridPos + (center - gridPos) * progress)
-            }
+            drawFlowLine(center + Offset(0f, -nodeDist + nodeRadius), center + Offset(0f, -centerRadius), Color(0xFFFFB100), pvPowerValue > 10)
+            drawFlowLine(center + Offset(-nodeDist + nodeRadius, 0f), center + Offset(-centerRadius, 0f), Color(0xFF2196F3), gridPowerValue > 10)
+            drawFlowLine(center + Offset(centerRadius, 0f), center + Offset(nodeDist - nodeRadius, 0f), Color(0xFF4CAF50), loadPowerValue > 10)
 
-            // 3. Center -> Load (Right)
-            val loadPos = Offset(size.width, size.height / 2)
-            drawLine(lineColor, center, loadPos, strokeWidth)
-            if (loadPowerValue > 10) {
-                drawCircle(Color(0xFF4CAF50), dotRadius, center + (loadPos - center) * progress)
-            }
-
-            // 4. Battery (Bottom) <-> Center
-            val battPos = Offset(size.width / 2, size.height)
-            drawLine(lineColor, battPos, center, strokeWidth)
-            if (batteryDischargeValue > 0.1) {
-                drawCircle(Color(0xFFF44336), dotRadius, battPos + (center - battPos) * progress)
-            } else if (batteryChargeValue > 0.1) {
-                drawCircle(Color(0xFFF44336), dotRadius, center + (battPos - center) * progress)
-            }
+            val battStart = center + Offset(0f, centerRadius)
+            val battEnd = center + Offset(0f, nodeDist - nodeRadius)
+            if (batteryDischargeValue > 0.1) drawFlowLine(battEnd, battStart, Color(0xFFF44336), true)
+            else if (batteryChargeValue > 0.1) drawFlowLine(battStart, battEnd, Color(0xFFF44336), true)
+            else drawLine(baseLineColor, battStart, battEnd, strokeWidth)
         }
 
-        // 1. PV (Top)
-        EnergyNode(
-            modifier = Modifier.align(Alignment.TopCenter).clickable { onNodeClick("PV Power") },
-            icon = Icons.Default.WbSunny,
-            label = "PV",
-            value = pvPower,
-            color = Color(0xFFFFB100)
-        )
+        val nodeDist = 130.dp
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(y = -nodeDist).clickable { onNodeClick("PV Power") }, icon = Icons.Default.WbSunny, label = "PV", value = pvPower, color = Color(0xFFFFB100), isFlowing = pvPowerValue > 10, labelPosition = LabelPosition.TOP)
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(x = -nodeDist).clickable { onNodeClick("Grid Power") }, icon = Icons.Default.ElectricBolt, label = "Grid", value = gridPower, color = Color(0xFF2196F3), isFlowing = gridPowerValue > 10, labelPosition = LabelPosition.BOTTOM)
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(x = nodeDist).clickable { onNodeClick("Output Power") }, icon = Icons.Default.Home, label = "Load", value = loadPower, color = Color(0xFF4CAF50), isFlowing = loadPowerValue > 10, labelPosition = LabelPosition.BOTTOM)
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(y = nodeDist).clickable { onNodeClick("SOC") }, icon = Icons.Default.BatteryStd, label = "Battery", value = "$batterySoc / $batteryVoltage", color = Color(0xFFF44336), isFlowing = batteryChargeValue > 0.1 || batteryDischargeValue > 0.1, labelPosition = LabelPosition.BOTTOM)
 
-        // 2. Grid (Left)
-        EnergyNode(
-            modifier = Modifier.align(Alignment.CenterStart).clickable { onNodeClick("Grid Power") },
-            icon = Icons.Default.Bolt,
-            label = "Grid",
-            value = gridPower,
-            color = Color(0xFF2196F3)
-        )
-
-        // 3. Load (Right)
-        EnergyNode(
-            modifier = Modifier.align(Alignment.CenterEnd).clickable { onNodeClick("Output Power") },
-            icon = Icons.Default.Home,
-            label = "Load",
-            value = loadPower,
-            color = Color(0xFF4CAF50)
-        )
-
-        // 4. Battery (Bottom)
-        EnergyNode(
-            modifier = Modifier.align(Alignment.BottomCenter).clickable { onNodeClick("SOC") },
-            icon = Icons.Default.BatteryStd,
-            label = "Battery",
-            value = "$batterySoc / $batteryVoltage",
-            color = Color(0xFFF44336)
-        )
-
-        // 5. Mode (Center)
         val displayMode = when {
             workMode.contains("Battery", true) -> "Battery Mode"
             workMode.contains("Line", true) || workMode.contains("Grid", true) -> "Line Mode"
@@ -468,53 +492,29 @@ fun EnergyFlowSection(
         }
 
         Surface(
-            modifier = Modifier.size(120.dp),
+            modifier = Modifier.size(130.dp),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceColorAtElevation(12.dp),
-            tonalElevation = 8.dp,
-            shadowElevation = 16.dp,
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, Brush.sweepGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary)))
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+            border = androidx.compose.foundation.BorderStroke(2.dp, Brush.sweepGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary)))
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                Color.Transparent
-                            )
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(4.dp)
-                ) {
-                    Text(
-                        "SYSTEM MODE", 
-                        style = MaterialTheme.typography.labelSmall, 
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = displayMode,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.ExtraBold,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        lineHeight = 14.sp
-                    )
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val centerRotation by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(animation = tween(10000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "CenterRotation")
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    rotate(centerRotation) {
+                        drawCircle(brush = Brush.sweepGradient(0f to Color.Transparent, 0.5f to primaryColor.copy(alpha = 0.2f), 1f to Color.Transparent), radius = size.width / 2 - 4.dp.toPx(), style = Stroke(width = 2.dp.toPx()), alpha = 0.5f)
+                    }
+                }
+                Column(verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {
+                    Text("SYSTEM", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text(text = displayMode, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface, lineHeight = 16.sp)
                 }
             }
         }
     }
 }
+
+enum class LabelPosition { TOP, BOTTOM, LEFT, RIGHT }
 
 @Composable
 fun EnergyNode(
@@ -522,52 +522,45 @@ fun EnergyNode(
     icon: ImageVector,
     label: String,
     value: String,
-    color: Color
+    color: Color,
+    isFlowing: Boolean = false,
+    labelPosition: LabelPosition = LabelPosition.BOTTOM
 ) {
-    Column(
-        modifier = modifier.width(110.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Surface(
-            modifier = Modifier.size(64.dp),
-            shape = CircleShape,
-            color = color.copy(alpha = 0.08f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, color.copy(alpha = 0.2f))
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(30.dp))
+    val infiniteTransition = rememberInfiniteTransition(label = "NodeAnim")
+    val rotation by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(animation = tween(3000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "RingRotation")
+    val scale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.05f, animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "PulseScale")
+
+    Box(modifier = modifier.size(150.dp), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.size(76.dp), contentAlignment = Alignment.Center) {
+            if (isFlowing) {
+                Canvas(modifier = Modifier.size(76.dp)) {
+                    drawCircle(color = color.copy(alpha = 0.3f), radius = (size.width / 2) * scale, style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), rotation * 2)))
+                }
+            }
+            Surface(modifier = Modifier.size(68.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), border = androidx.compose.foundation.BorderStroke(1.5.dp, color.copy(alpha = 0.5f))) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(32.dp))
+                }
             }
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            value,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1
-        )
+        val labelModifier = when(labelPosition) {
+            LabelPosition.TOP -> Modifier.align(Alignment.TopCenter).padding(top = 0.dp)
+            LabelPosition.BOTTOM -> Modifier.align(Alignment.BottomCenter).padding(bottom = 0.dp)
+            LabelPosition.LEFT -> Modifier.align(Alignment.CenterStart).padding(start = 0.dp)
+            LabelPosition.RIGHT -> Modifier.align(Alignment.CenterEnd).padding(end = 0.dp)
+        }
+        Column(modifier = labelModifier.width(115.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, textAlign = TextAlign.Center)
+        }
     }
 }
 
 @Composable
 fun StatusItem(modifier: Modifier = Modifier, icon: ImageVector, label: String, value: String, subValue: String? = null) {
-    Card(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
+    Card(modifier = modifier, shape = MaterialTheme.shapes.extraLarge, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -576,6 +569,16 @@ fun StatusItem(modifier: Modifier = Modifier, icon: ImageVector, label: String, 
             if (!subValue.isNullOrEmpty() && subValue != "0") {
                 Text(subValue, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
             }
+        }
+    }
+}
+
+@androidx.compose.ui.tooling.preview.Preview(showBackground = true)
+@Composable
+fun EnergyFlowModernPreview() {
+    MaterialTheme {
+        Box(modifier = Modifier.background(MaterialTheme.colorScheme.surface).padding(20.dp)) {
+            EnergyFlowSection(pvPowerValue = 500.0, gridPowerValue = 0.0, batteryChargeValue = 200.0, batteryDischargeValue = 0.0, loadPowerValue = 300.0, pvPower = "500 W", gridPower = "230 V", batterySoc = "85%", batteryVoltage = "52.4 V", loadPower = "300 W", workMode = "PV Mode", onNodeClick = {})
         }
     }
 }
