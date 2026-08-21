@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -25,7 +26,10 @@ import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(repository: DeviceRepository) {
+fun HistoryScreen(
+    repository: DeviceRepository,
+    onMenuClick: () -> Unit = {}
+) {
     val devices by repository.devices.observeAsState(emptyList())
     val activeDevice = devices.firstOrNull()
     
@@ -228,6 +232,11 @@ fun HistoryScreen(repository: DeviceRepository) {
         topBar = {
             TopAppBar(
                 title = { Text("Device History") },
+                navigationIcon = {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showDatePicker = true }) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date")
@@ -320,6 +329,7 @@ fun HistoryScreen(repository: DeviceRepository) {
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         }
+                        item { Spacer(modifier = Modifier.height(110.dp)) }
                     }
                     
                     // Vertical Divider
@@ -366,6 +376,7 @@ fun HistoryScreen(repository: DeviceRepository) {
                                 }
                             }
                         }
+                        item { Spacer(modifier = Modifier.height(110.dp)) }
                     }
                 }
             }

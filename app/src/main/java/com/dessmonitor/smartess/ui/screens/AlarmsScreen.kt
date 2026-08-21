@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -21,7 +22,10 @@ import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AlarmsScreen(repository: DeviceRepository) {
+fun AlarmsScreen(
+    repository: DeviceRepository,
+    onMenuClick: () -> Unit = {}
+) {
     val devices by repository.devices.observeAsState(emptyList())
     val activeDevice = devices.firstOrNull()
     
@@ -45,7 +49,14 @@ fun AlarmsScreen(repository: DeviceRepository) {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Alarm History") })
+            TopAppBar(
+                title = { Text("Alarm History") },
+                navigationIcon = {
+                    IconButton(onClick = onMenuClick) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu")
+                    }
+                }
+            )
         }
     ) { padding ->
         if (isLoading && dbAlarms.isEmpty()) {
@@ -120,6 +131,7 @@ fun AlarmsScreen(repository: DeviceRepository) {
                         )
                     }
                 }
+                item { Spacer(modifier = Modifier.height(110.dp)) }
             }
         }
     }
