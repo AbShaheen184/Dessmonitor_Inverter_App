@@ -3,7 +3,7 @@ package com.dessmonitor.smartess.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -20,27 +20,37 @@ import androidx.compose.ui.unit.dp
 fun GlassSurface(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 24.dp,
-    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+    containerColor: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
     content: @Composable () -> Unit
 ) {
-    Surface(
-        modifier = modifier
-            .clip(RoundedCornerShape(cornerRadius))
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.2f),
-                        Color.White.copy(alpha = 0.05f)
-                    )
-                ),
-                shape = RoundedCornerShape(cornerRadius)
-            ),
-        color = containerColor,
-        tonalElevation = 8.dp,
-        shadowElevation = 12.dp,
-        shape = RoundedCornerShape(cornerRadius),
-    ) {
-        content()
+    Box(modifier = modifier) {
+        // Blur Layer
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(cornerRadius))
+                .blur(20.dp)
+                .background(containerColor)
+        )
+        
+        // Content and Border Layer
+        Surface(
+            color = Color.Transparent,
+            shape = RoundedCornerShape(cornerRadius),
+            modifier = Modifier
+                .fillMaxSize()
+                .border(
+                    width = 1.dp,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.15f),
+                            Color.White.copy(alpha = 0.05f)
+                        )
+                    ),
+                    shape = RoundedCornerShape(cornerRadius)
+                )
+        ) {
+            content()
+        }
     }
 }

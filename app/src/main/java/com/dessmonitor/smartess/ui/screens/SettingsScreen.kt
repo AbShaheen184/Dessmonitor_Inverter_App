@@ -270,6 +270,7 @@ fun SettingsScreen(
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     }
+                    item { Spacer(modifier = Modifier.height(110.dp)) }
                 }
 
                 // Vertical Divider
@@ -308,6 +309,7 @@ fun SettingsScreen(
                         }
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     }
+                    item { Spacer(modifier = Modifier.height(110.dp)) }
                 }
             }
         }
