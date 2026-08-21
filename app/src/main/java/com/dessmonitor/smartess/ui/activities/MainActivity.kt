@@ -9,6 +9,7 @@ import androidx.compose.runtime.livedata.observeAsState
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
 import com.dessmonitor.smartess.ui.screens.LoginScreen
 import com.dessmonitor.smartess.ui.screens.MainScreen
+import com.dessmonitor.smartess.ui.theme.SmartESSTheme
 import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
@@ -18,7 +19,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         setContent {
-            MaterialTheme {
+            SmartESSTheme {
                 val isLoggedIn by repository.isLoggedIn.observeAsState(false)
 
                 if (isLoggedIn) {
