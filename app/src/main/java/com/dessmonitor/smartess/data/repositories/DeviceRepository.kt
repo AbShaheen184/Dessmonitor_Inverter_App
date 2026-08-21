@@ -26,6 +26,9 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     private val _devices = MutableLiveData<List<DeviceInfo>>(emptyList())
     val devices: LiveData<List<DeviceInfo>> = _devices
 
+    private val _lastUpdateTime = MutableLiveData<Long>(0L)
+    val lastUpdateTime: LiveData<Long> = _lastUpdateTime
+
     private val _isLoggedIn = MutableLiveData<Boolean>(false)
     val isLoggedIn: LiveData<Boolean> = _isLoggedIn
 
@@ -254,6 +257,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 }
             }
             _devices.postValue(allDevices)
+            _lastUpdateTime.postValue(System.currentTimeMillis())
             prefs.edit().putString("cached_devices", gson.toJson(allDevices)).apply()
             Result.success(allDevices)
         } catch (e: Exception) { Result.failure(e) }
