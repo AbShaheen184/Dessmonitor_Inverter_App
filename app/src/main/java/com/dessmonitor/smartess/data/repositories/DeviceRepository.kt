@@ -78,6 +78,14 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     
     // Session Settings Cache (FieldId -> ValueLabel)
     private val settingsSessionCache = mutableMapOf<String, String>()
+
+    private val _automationRules = MutableLiveData<List<com.dessmonitor.smartess.data.models.AutomationRule>>(emptyList())
+    val automationRules: LiveData<List<com.dessmonitor.smartess.data.models.AutomationRule>> = _automationRules
+
+    fun setAutomationRules(rules: List<com.dessmonitor.smartess.data.models.AutomationRule>) {
+        _automationRules.value = rules
+        prefs.edit().putString("automation_rules", gson.toJson(rules)).apply()
+    }
     
     // Categories synced in this session
     private val syncedCategories = mutableSetOf<String>()
@@ -193,6 +201,9 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
         val trendSensJson = prefs.getString("trends_sensors", null)
         if (trendSensJson != null) try { _trendsSensors.value = gson.fromJson(trendSensJson, object : TypeToken<Set<String>>() {}.type) } catch (_: Exception) {}
+
+        val autoJson = prefs.getString("automation_rules", null)
+        if (autoJson != null) try { _automationRules.value = gson.fromJson(autoJson, object : TypeToken<List<com.dessmonitor.smartess.data.models.AutomationRule>>() {}.type) } catch (_: Exception) {}
 
         // Load history cache
         val savedHistory = prefs.getString("history_cache", null)
