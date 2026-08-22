@@ -6,7 +6,6 @@
 *.class
 bin/
 build/
-app/
 .gradle/
 .kotlin/
 .artifacts/
@@ -22,8 +21,6 @@ captures/
 *.iws
 *.ipr
 .out
-.gitattributes
-.gitignore
 
 # Keystore files (Security)
 *.jks

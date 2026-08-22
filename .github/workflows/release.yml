@@ -10,6 +10,8 @@ jobs:
   build:
     name: Build Android APK & GitHub Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -22,19 +24,24 @@ jobs:
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Make Gradle Wrapper Executable
-        run: chmod +x gradlew
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build Debug & Release APK
-        run: ./gradlew assembleDebug assembleRelease --no-daemon
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug assembleRelease --no-daemon
+          else
+            gradle assembleDebug assembleRelease --no-daemon
+          fi
 
       - name: Prepare Release Artifacts
         run: |
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk artifacts/DessMonitor-SmartESS-debug.apk || true
-          cp app/build/outputs/apk/release/app-release-unsigned.apk artifacts/DessMonitor-SmartESS-release.apk || cp app/build/outputs/apk/release/*.apk artifacts/DessMonitor-SmartESS-release.apk || true
+          # Find and copy the debug APK
+          find app/build/outputs/apk/debug -name "*.apk" -exec cp {} artifacts/DessMonitor-SmartESS-debug.apk \;
+          # Find and copy the release APK (signed or unsigned)
+          find app/build/outputs/apk/release -name "*.apk" -exec cp {} artifacts/DessMonitor-SmartESS-release.apk \;
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
