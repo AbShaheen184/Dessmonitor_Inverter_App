@@ -55,6 +55,7 @@ fun InverterHomeScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var syncError by remember { mutableStateOf<String?>(null) }
     var showStatsDialog by remember { mutableStateOf(false) }
+    var showAutomationDialog by remember { mutableStateOf(false) }
 
     // Use the first device's data for the main view
     val activeDevice = devices.firstOrNull()
@@ -121,6 +122,17 @@ fun InverterHomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showAutomationDialog = true }) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.AutoMode, contentDescription = "Automations", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
                     IconButton(onClick = onSettingsClick) {
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -405,6 +417,14 @@ fun InverterHomeScreen(
                 confirmButton = {
                     TextButton(onClick = { showStatsDialog = false }) { Text("Done") }
                 }
+            )
+        }
+
+        if (showAutomationDialog) {
+            AutomationsDialog(
+                repository = repository,
+                activeDevice = activeDevice,
+                onDismiss = { showAutomationDialog = false }
             )
         }
     }

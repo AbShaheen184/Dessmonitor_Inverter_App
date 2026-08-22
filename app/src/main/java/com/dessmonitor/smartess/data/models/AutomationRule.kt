@@ -31,9 +31,17 @@ data class AutomationRule(
     val rightCustomValue: Double = 0.0,
     val rightParameter: String? = null,
     
-    // Action (Inverter setting to change)
-    val targetSettingId: String,          // e.g., "01"
-    val targetSettingName: String,        // e.g., "Output source priority"
-    val targetSettingValue: String,       // e.g., "0" (SBU), "1" (SUB)
-    val targetSettingValueDisplay: String // e.g., "SBU Priority"
+    // Action Toggles (Both can be active at the same time)
+    val enableInverterSettingAction: Boolean = true,
+    val enableNotificationAction: Boolean = false,
+    
+    // Inverter Setting Action
+    val targetSettingId: String? = null,          // e.g., "01"
+    val targetSettingName: String? = null,        // e.g., "Output source priority"
+    val targetSettingValue: String? = null,       // e.g., "0" (SBU), "1" (SUB)
+    val targetSettingValueDisplay: String? = null,// e.g., "SBU Priority"
+    
+    // Mobile Notification Action
+    val notificationTitle: String? = "Automation Alert",
+    val notificationMessageTemplate: String? = "The battery is {SOC} and voltage is {Battery Voltage}"
 )
