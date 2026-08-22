@@ -42,6 +42,116 @@ private fun categorizeSetting(name: String): String {
     }
 }
 
+// Public helper function for processing fields across components
+fun parseControlFields(json: org.json.JSONObject, currentDevice: DeviceInfo, repository: DeviceRepository, individualValues: Map<String, String>? = null): List<ControlField> {
+    val list = mutableListOf<ControlField>()
+    val dat = json.optJSONObject("dat")
+    val fieldsArray = dat?.optJSONArray("field")
+    
+    if (fieldsArray != null) {
+        for (i in 0 until fieldsArray.length()) {
+            val f = fieldsArray.getJSONObject(i)
+            val id = f.optString("id")
+            val name = f.optString("name")
+            val options = mutableMapOf<String, String>()
+            var selectedFromItems: String? = null
+            
+            val itemArray = f.optJSONArray("item")
+            if (itemArray != null) {
+                for (j in 0 until itemArray.length()) {
+                    val item = itemArray.getJSONObject(j)
+                    val k = item.optString("key").ifEmpty { 
+                        item.optString("id").ifEmpty { 
+                            item.optString("v").ifEmpty { 
+                                item.optString("code", "") 
+                            } 
+                        } 
+                    }.trim()
+                    
+                    val v = item.optString("val").ifEmpty { 
+                        item.optString("name").ifEmpty { 
+                            item.optString("desc").ifEmpty { 
+                                item.optString("text", "") 
+                            } 
+                        } 
+                    }.trim()
+
+                    if (k.isNotEmpty() && v.isNotEmpty()) {
+                        options[k] = v
+                    }
+                    
+                    if (item.optInt("sel") == 1 || item.optInt("selected") == 1 || 
+                        item.optString("sel") == "1" || item.optBoolean("selected")) {
+                        selectedFromItems = v
+                    }
+                }
+            }
+            
+            var rawVal = individualValues?.get(id) ?: ""
+            if (rawVal.isEmpty()) {
+                rawVal = f.optString("val", "").ifEmpty { 
+                    f.optString("value", "").ifEmpty { 
+                        f.optString("cur", "").ifEmpty { 
+                            f.optString("now", "") 
+                        } 
+                    } 
+                }.trim()
+            }
+            
+            if (rawVal.isEmpty() && selectedFromItems == null) {
+                val mappedName = repository.mapSensorTitle(currentDevice.devcode ?: 0, name)
+                val telemetry = currentDevice.dataPoints.find { 
+                    (it.id != null && it.id == id) ||
+                    it.title.equals(mappedName, ignoreCase = true) || 
+                    it.title.equals(name, ignoreCase = true) ||
+                    it.title.contains(name, ignoreCase = true)
+                }
+                if (telemetry != null) {
+                    rawVal = telemetry.value.toString().trim()
+                }
+            }
+
+            val displayValue = when {
+                selectedFromItems != null -> selectedFromItems
+                rawVal.isNotEmpty() -> {
+                    val normalizedKey = if (rawVal.endsWith(".0")) rawVal.substring(0, rawVal.length - 2) else rawVal
+                    val byKey = options[normalizedKey] ?: options[rawVal] ?: 
+                                options.entries.find { it.key.equals(normalizedKey, ignoreCase = true) }?.value
+                    
+                    if (byKey != null) {
+                        byKey
+                    } else {
+                        val isValue = options.values.find { it.equals(rawVal, ignoreCase = true) || it.startsWith(rawVal, ignoreCase = true) }
+                        if (isValue != null) {
+                            isValue
+                        } else if (options.isNotEmpty()) {
+                            val idx = rawVal.toIntOrNull()
+                            if (idx != null && idx >= 0 && idx < options.size) {
+                                options.values.toList()[idx]
+                            } else {
+                                "$rawVal ${f.optString("unit")}".trim()
+                            }
+                        } else {
+                            "$rawVal ${f.optString("unit")}".trim()
+                        }
+                    }
+                }
+                else -> null
+            }
+
+            list.add(ControlField(
+                id = id,
+                name = name,
+                unit = f.optString("unit").takeIf { it.isNotEmpty() },
+                options = options,
+                category = categorizeSetting(name),
+                currentValue = displayValue
+            ))
+        }
+    }
+    return list
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
@@ -56,122 +166,8 @@ fun SettingsScreen(
     var selectedCategory by remember { mutableStateOf<String?>(initialCategory) }
     val scope = rememberCoroutineScope()
 
-    // Process fields helper
     fun processFields(json: org.json.JSONObject, currentDevice: DeviceInfo, individualValues: Map<String, String>? = null): List<ControlField> {
-        val list = mutableListOf<ControlField>()
-        val dat = json.optJSONObject("dat")
-        val fieldsArray = dat?.optJSONArray("field")
-        
-        if (fieldsArray != null) {
-            for (i in 0 until fieldsArray.length()) {
-                val f = fieldsArray.getJSONObject(i)
-                val id = f.optString("id")
-                val name = f.optString("name")
-                val options = mutableMapOf<String, String>()
-                var selectedFromItems: String? = null
-                
-                val itemArray = f.optJSONArray("item")
-                if (itemArray != null) {
-                    for (j in 0 until itemArray.length()) {
-                        val item = itemArray.getJSONObject(j)
-                        val k = item.optString("key").ifEmpty { 
-                            item.optString("id").ifEmpty { 
-                                item.optString("v").ifEmpty { 
-                                    item.optString("code", "") 
-                                } 
-                            } 
-                        }.trim()
-                        
-                        val v = item.optString("val").ifEmpty { 
-                            item.optString("name").ifEmpty { 
-                                item.optString("desc").ifEmpty { 
-                                    item.optString("text", "") 
-                                } 
-                            } 
-                        }.trim()
-
-                        if (k.isNotEmpty() && v.isNotEmpty()) {
-                            options[k] = v
-                        }
-                        
-                        if (item.optInt("sel") == 1 || item.optInt("selected") == 1 || 
-                            item.optString("sel") == "1" || item.optBoolean("selected")) {
-                            selectedFromItems = v
-                        }
-                    }
-                }
-                
-                // 1. Try from NEW individualValues map (Result of queryDeviceCtrlValue)
-                var rawVal = individualValues?.get(id) ?: ""
-                
-                // 2. Try from control field response itself
-                if (rawVal.isEmpty()) {
-                    rawVal = f.optString("val", "").ifEmpty { 
-                        f.optString("value", "").ifEmpty { 
-                            f.optString("cur", "").ifEmpty { 
-                                f.optString("now", "") 
-                            } 
-                        } 
-                    }.trim()
-                }
-                
-                // 3. Match with telemetry data points
-                if (rawVal.isEmpty() && selectedFromItems == null) {
-                    val mappedName = repository.mapSensorTitle(currentDevice.devcode, name)
-                    val telemetry = currentDevice.dataPoints.find { 
-                        (it.id != null && it.id == id) ||
-                        it.title.equals(mappedName, ignoreCase = true) || 
-                        it.title.equals(name, ignoreCase = true) ||
-                        it.title.contains(name, ignoreCase = true)
-                    }
-                    if (telemetry != null) {
-                        rawVal = telemetry.value.toString().trim()
-                    }
-                }
-
-                val displayValue = when {
-                    selectedFromItems != null -> selectedFromItems
-                    rawVal.isNotEmpty() -> {
-                        val normalizedKey = if (rawVal.endsWith(".0")) rawVal.substring(0, rawVal.length - 2) else rawVal
-                        val byKey = options[normalizedKey] ?: options[rawVal] ?: 
-                                    options.entries.find { it.key.equals(normalizedKey, ignoreCase = true) }?.value
-                        
-                        if (byKey != null) {
-                            byKey
-                        } else {
-                            val isValue = options.values.find { it.equals(rawVal, ignoreCase = true) || it.startsWith(rawVal, ignoreCase = true) }
-                            if (isValue != null) {
-                                isValue
-                            } else if (options.isNotEmpty()) {
-                                val idx = rawVal.toIntOrNull()
-                                if (idx != null && idx >= 0 && idx < options.size) {
-                                    options.values.toList()[idx]
-                                } else {
-                                    "$rawVal ${f.optString("unit")}".trim()
-                                }
-                            } else {
-                                "$rawVal ${f.optString("unit")}".trim()
-                            }
-                        }
-                    }
-                    else -> repository.getCachedSettingsValue(id)
-                }
-
-                if (displayValue != null) {
-                    repository.updateSettingsCache(id, displayValue)
-                }
-
-                list.add(ControlField(
-                    id = id,
-                    name = name,
-                    unit = f.optString("unit"),
-                    options = options,
-                    category = categorizeSetting(name),
-                    currentValue = displayValue
-                ))
-            }
-        }
-        return list
+        return parseControlFields(json, currentDevice, repository, individualValues)
     }
 
     // Background refresh logic
