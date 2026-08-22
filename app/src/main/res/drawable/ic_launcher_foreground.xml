@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -6,85 +5,134 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- 1. Sleek Glassmorphic Inverter Outer Frame (3D Chamfered Shield) -->
+    <!-- Ambient Solar Glow -->
+    <path android:pathData="M84,24m-24,0a24,24 0,1 1,48 0a24,24 0,1 1,-48 0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="84"
+                android:centerY="24"
+                android:gradientRadius="24"
+                android:type="radial">
+                <item android:color="#66FF9800" android:offset="0.0" />
+                <item android:color="#00FF9800" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Modern Sun Core -->
+    <path android:pathData="M84,24m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="84"
+                android:centerY="24"
+                android:gradientRadius="9"
+                android:type="radial">
+                <item android:color="#FFFFE082" android:offset="0.0" />
+                <item android:color="#FFFF9800" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Sleek Inverter Body - Base (Deep Primary Blue) -->
     <path
-        android:pathData="M54,23 C68,23 78,33 78,47 C78,61 68,77 54,84 C40,77 30,61 30,47 C30,33 40,23 54,23 Z"
-        android:strokeWidth="2"
-        android:strokeColor="#7DD3FC">
+        android:pathData="M30,42 C30,37 34,34 39,34 L69,34 C74,34 78,37 78,42 L78,84 C78,89 74,92 69,92 L39,92 C34,92 30,89 30,84 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="30"
-                android:startY="23"
+                android:startY="34"
                 android:endX="78"
-                android:endY="84"
+                android:endY="92"
                 android:type="linear">
-                <item android:color="#2A38BDF8" android:offset="0.0"/>
-                <item android:color="#1A0284C7" android:offset="0.5"/>
-                <item android:color="#3A0F172A" android:offset="1.0"/>
+                <item android:color="#E61565C0" android:offset="0.0" />
+                <item android:color="#E62196F3" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- 2. Solar Energy Ring (Top Right Arc) -->
+    <!-- Frosted Glass Overlay (The Glassmorphism Effect) -->
     <path
-        android:pathData="M65,30 A 24,24 0 0,1 77,48"
-        android:strokeWidth="3.5"
-        android:strokeColor="#F59E0B"
-        android:strokeLineCap="round"/>
-
-    <!-- 3. Battery Green Energy Ring (Bottom Left Arc) -->
-    <path
-        android:pathData="M31,48 A 24,24 0 0,0 43,66"
-        android:strokeWidth="3.5"
-        android:strokeColor="#10B981"
-        android:strokeLineCap="round"/>
-
-    <!-- 4. AC Inverter Pulse Sine Wave (Middle Energy Bridge) -->
-    <path
-        android:pathData="M37,54 C42,46 46,46 49,54 C52,62 56,62 61,54"
-        android:strokeWidth="2.5"
-        android:strokeColor="#E0F2FE"
-        android:strokeLineCap="round"/>
-
-    <!-- 5. Powerful 3D Gold Energy Bolt (Center Core) -->
-    <!-- Bolt Shadow/Glow Base -->
-    <path
-        android:pathData="M57,30 L43,51 L52,51 L47,72 L65,48 L56,48 Z"
-        android:fillColor="#40F59E0B"/>
-
-    <!-- Main Gold-to-Amber Bolt Body -->
-    <path
-        android:pathData="M56,31 L44,50 L52,50 L48,70 L64,48 L56,48 Z">
+        android:pathData="M30,42 C30,37 34,34 39,34 L69,34 C74,34 78,37 78,42 L78,84 C78,89 74,92 69,92 L39,92 C34,92 30,89 30,84 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="44"
-                android:startY="31"
-                android:endX="64"
-                android:endY="70"
+                android:startX="30"
+                android:startY="34"
+                android:endX="78"
+                android:endY="92"
                 android:type="linear">
-                <item android:color="#FFFDE047" android:offset="0.0"/>
-                <item android:color="#FFF59E0B" android:offset="0.5"/>
-                <item android:color="#FFEAB308" android:offset="1.0"/>
+                <item android:color="#4DFFFFFF" android:offset="0.0" />
+                <item android:color="#1AFFFFFF" android:offset="0.3" />
+                <item android:color="#0DFFFFFF" android:offset="0.7" />
+                <item android:color="#33FFFFFF" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Bolt Top Specular Highlight Edge -->
+    <!-- Sharp Edge Highlight (Glass Rim) -->
     <path
-        android:pathData="M56,31 L44,50 L52,50 L50,53 L56,48 Z"
-        android:fillColor="#FFFFFFFF"/>
+        android:strokeWidth="0.75"
+        android:pathData="M30,42 C30,37 34,34 39,34 L69,34 C74,34 78,37 78,42 L78,84 C78,89 74,92 69,92 L39,92 C34,92 30,89 30,84 Z">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="30"
+                android:startY="34"
+                android:endX="78"
+                android:endY="92"
+                android:type="linear">
+                <item android:color="#A6FFFFFF" android:offset="0.0" />
+                <item android:color="#26FFFFFF" android:offset="0.5" />
+                <item android:color="#66FFFFFF" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- 6. SmartESS Pulse Nodes (Grid, PV, Battery, Load Status Lights) -->
-    <!-- PV Solar Node -->
+    <!-- Internal Control Panel (Translucent Dark) -->
     <path
-        android:pathData="M65,30 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"
-        android:fillColor="#FBBF24"/>
-    <!-- Load Node -->
+        android:fillColor="#4D000000"
+        android:pathData="M37,42h34c1.6,0 3,1.4 3,3v22c0,1.6 -1.4,3 -3,3h-34c-1.6,0 -3,-1.4 -3,-3v-22c0,-1.6 1.4,-3 3,-3z" />
+
+    <!-- Glowing Energy Flow Indicators (Green) -->
     <path
-        android:pathData="M43,66 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"
-        android:fillColor="#34D399"/>
-    <!-- Grid Node -->
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M42,54 L52,54 M56,54 L66,54">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="42"
+                android:startY="54"
+                android:endX="66"
+                android:endY="54"
+                android:type="linear">
+                <item android:color="#4CAF50" android:offset="0.0" />
+                <item android:color="#B9F6CA" android:offset="0.5" />
+                <item android:color="#4CAF50" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Central Power Icon (Vibrant Orange Bolt) -->
+    <path android:pathData="M54,46l-4,9h3l-2.5,7l8,-11h-4.5l4,-5z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="50"
+                android:startY="46"
+                android:endX="58"
+                android:endY="62"
+                android:type="linear">
+                <item android:color="#FFFFB74D" android:offset="0.0" />
+                <item android:color="#FFFF9800" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Bottom Status Array (Glassy Nodes) -->
     <path
-        android:pathData="M77,48 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"
-        android:fillColor="#38BDF8"/>
+        android:fillColor="#81C784"
+        android:pathData="M42,80a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z" />
+    <path
+        android:fillColor="#40FFFFFF"
+        android:pathData="M51,80a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z" />
+    <path
+        android:fillColor="#40FFFFFF"
+        android:pathData="M60,80a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z" />
+
 </vector>
