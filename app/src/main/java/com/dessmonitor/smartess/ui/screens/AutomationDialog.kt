@@ -1,22 +1,33 @@
 package com.dessmonitor.smartess.ui.screens
 
-import androidx.compose.foundation.background
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoMode
+import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.dessmonitor.smartess.data.models.ActionType
 import com.dessmonitor.smartess.data.models.AutomationRule
 import com.dessmonitor.smartess.data.models.ComparisonOperator
 import com.dessmonitor.smartess.data.models.DeviceInfo
@@ -32,11 +43,19 @@ fun AutomationsDialog(
     onDismiss: () -> Unit
 ) {
     val rules by repository.automationRules.observeAsState(emptyList())
+    var ruleToEdit by remember { mutableStateOf<AutomationRule?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var availableFields by remember { mutableStateOf<List<ControlField>>(emptyList()) }
     var isLoadingFields by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    // Battery optimization check helper
+    fun isBatteryOptimizationIgnored(): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+    }
 
     val telemetryTitles = remember(activeDevice) {
         activeDevice?.dataPoints?.map { it.title }?.distinct()?.sorted() ?: listOf(
@@ -49,7 +68,7 @@ fun AutomationsDialog(
         if (activeDevice != null) {
             isLoadingFields = true
             repository.getControlFields(activeDevice).onSuccess { json ->
-                availableFields = processFields(json, activeDevice)
+                availableFields = parseControlFields(json, activeDevice, repository)
                 isLoadingFields = false
             }.onFailure {
                 isLoadingFields = false
@@ -89,8 +108,24 @@ fun AutomationsDialog(
                 }
 
                 if (conditionMet) {
-                    statusMessage = "Condition met for '${rule.name}'. Triggering setting: ${rule.targetSettingName} = ${rule.targetSettingValueDisplay}..."
-                    repository.setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
+                    if (rule.actionType == ActionType.INVERTER_SETTING) {
+                        if (rule.targetSettingId != null && rule.targetSettingValue != null) {
+                            statusMessage = "Condition met for '${rule.name}'. Triggering setting: ${rule.targetSettingName} = ${rule.targetSettingValueDisplay}..."
+                            repository.setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
+                        }
+                    } else {
+                        // Mobile Notification Action
+                        var formattedMessage = rule.notificationMessageTemplate ?: "Condition met for ${rule.name}"
+                        activeDevice.dataPoints.forEach { dp ->
+                            formattedMessage = formattedMessage.replace("{${dp.title}}", "${dp.value} ${dp.unit ?: ""}".trim(), ignoreCase = true)
+                        }
+                        statusMessage = "Condition met for '${rule.name}'. Sending mobile notification..."
+                        com.dessmonitor.smartess.utils.NotificationUtils.sendNotification(
+                            context = context,
+                            title = rule.notificationTitle ?: rule.name,
+                            message = formattedMessage
+                        )
+                    }
                 }
             }
             statusMessage = "Automation evaluation complete."
@@ -107,11 +142,84 @@ fun AutomationsDialog(
             }
         },
         text = {
-            Box(modifier = Modifier.heightIn(max = 480.dp)) {
+            Box(modifier = Modifier.heightIn(max = 520.dp)) {
                 Column {
+                    // Background Service Info Banner
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "Background Service Required",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Automations continuously run in the background. Grant background & notification permissions below so rules trigger automatically even when the app is closed.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.BatteryAlert, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Unrestricted Battery", style = MaterialTheme.typography.labelSmall)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                            }
+                                            context.startActivity(intent)
+                                        } else {
+                                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(intent)
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Notifications", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+                    }
+
                     if (!statusMessage.isNullOrEmpty()) {
                         Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
                             shape = MaterialTheme.shapes.small,
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
                         ) {
@@ -119,7 +227,7 @@ fun AutomationsDialog(
                                 statusMessage!!,
                                 modifier = Modifier.padding(8.dp),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = MaterialTheme.colorScheme.secondary
                             )
                         }
                     }
@@ -134,7 +242,10 @@ fun AutomationsDialog(
                         LazyColumn(modifier = Modifier.weight(1f)) {
                             items(rules) { rule ->
                                 Card(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable { ruleToEdit = rule },
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                                 ) {
                                     Row(
@@ -142,19 +253,32 @@ fun AutomationsDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
-                                            Text(rule.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(rule.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                                                Spacer(Modifier.width(6.dp))
+                                                Icon(Icons.Default.Edit, contentDescription = "Edit Rule", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                                            }
                                             val rightText = if (rule.rightOperandType == RightOperandType.CUSTOM_VALUE) rule.rightCustomValue.toString() else rule.rightParameter ?: ""
                                             Text(
                                                 "IF ${rule.leftParameter} ${rule.operator.symbol} $rightText",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
-                                            Text(
-                                                "THEN SET ${rule.targetSettingName} → ${rule.targetSettingValueDisplay}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.secondary
-                                            )
+                                            if (rule.actionType == ActionType.INVERTER_SETTING) {
+                                                Text(
+                                                    "THEN SET ${rule.targetSettingName ?: ""} → ${rule.targetSettingValueDisplay ?: ""}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.secondary
+                                                )
+                                            } else {
+                                                Text(
+                                                    "THEN NOTIFY: \"${rule.notificationMessageTemplate ?: ""}\"",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.secondary
+                                                )
+                                            }
                                         }
                                         Switch(
                                             checked = rule.isEnabled,
@@ -204,14 +328,25 @@ fun AutomationsDialog(
         }
     )
 
-    if (showCreateDialog) {
+    if (showCreateDialog || ruleToEdit != null) {
         CreateAutomationRuleDialog(
+            initialRule = ruleToEdit,
             telemetryTitles = telemetryTitles,
             availableFields = availableFields,
-            onDismiss = { showCreateDialog = false },
-            onSave = { newRule ->
-                repository.setAutomationRules(rules + newRule)
+            onDismiss = { 
+                showCreateDialog = false 
+                ruleToEdit = null
+            },
+            onSave = { savedRule ->
+                val existingIndex = rules.indexOfFirst { it.id == savedRule.id }
+                val updatedRules = if (existingIndex >= 0) {
+                    rules.toMutableList().apply { set(existingIndex, savedRule) }
+                } else {
+                    rules + savedRule
+                }
+                repository.setAutomationRules(updatedRules)
                 showCreateDialog = false
+                ruleToEdit = null
             }
         )
     }
@@ -220,22 +355,32 @@ fun AutomationsDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateAutomationRuleDialog(
+    initialRule: AutomationRule? = null,
     telemetryTitles: List<String>,
     availableFields: List<ControlField>,
     onDismiss: () -> Unit,
     onSave: (AutomationRule) -> Unit
 ) {
-    var ruleName by remember { mutableStateOf("") }
-    var selectedLeftParam by remember { mutableStateOf(telemetryTitles.firstOrNull() ?: "PV Power") }
-    var selectedOperator by remember { mutableStateOf(ComparisonOperator.GREATER_THAN_OR_EQUAL) }
-    var rightOperandType by remember { mutableStateOf(RightOperandType.CUSTOM_VALUE) }
-    var rightCustomValText by remember { mutableStateOf("1000") }
-    var selectedRightParam by remember { mutableStateOf(telemetryTitles.firstOrNull() ?: "Output Power") }
+    var ruleName by remember(initialRule) { mutableStateOf(initialRule?.name ?: "") }
+    var selectedLeftParam by remember(initialRule) { mutableStateOf(initialRule?.leftParameter ?: (telemetryTitles.firstOrNull() ?: "PV Power")) }
+    var selectedOperator by remember(initialRule) { mutableStateOf(initialRule?.operator ?: ComparisonOperator.GREATER_THAN_OR_EQUAL) }
+    var rightOperandType by remember(initialRule) { mutableStateOf(initialRule?.rightOperandType ?: RightOperandType.CUSTOM_VALUE) }
+    var rightCustomValText by remember(initialRule) { mutableStateOf(initialRule?.rightCustomValue?.toString() ?: "1000") }
+    var selectedRightParam by remember(initialRule) { mutableStateOf(initialRule?.rightParameter ?: (telemetryTitles.firstOrNull() ?: "Output Power")) }
 
-    var selectedField by remember { mutableStateOf(availableFields.firstOrNull()) }
-    var selectedOptionKey by remember { mutableStateOf(selectedField?.options?.keys?.firstOrNull() ?: "") }
-    var selectedOptionDisplay by remember { mutableStateOf(selectedField?.options?.get(selectedOptionKey) ?: "") }
-    var customSettingTextVal by remember { mutableStateOf("") }
+    var selectedActionType by remember(initialRule) { mutableStateOf(initialRule?.actionType ?: ActionType.INVERTER_SETTING) }
+    var notificationTitleText by remember(initialRule) { mutableStateOf(initialRule?.notificationTitle ?: "Automation Alert") }
+    var notificationTemplateText by remember(initialRule) { mutableStateOf(initialRule?.notificationMessageTemplate ?: "The battery is {SOC}% / {Battery Voltage}V") }
+
+    var selectedField by remember(initialRule, availableFields) {
+        mutableStateOf(
+            if (initialRule?.targetSettingId != null) availableFields.find { it.id == initialRule.targetSettingId } ?: availableFields.firstOrNull()
+            else availableFields.firstOrNull()
+        )
+    }
+    var selectedOptionKey by remember(initialRule, selectedField) { mutableStateOf(initialRule?.targetSettingValue ?: (selectedField?.options?.keys?.firstOrNull() ?: "")) }
+    var selectedOptionDisplay by remember(initialRule, selectedField) { mutableStateOf(initialRule?.targetSettingValueDisplay ?: (selectedField?.options?.get(selectedOptionKey) ?: "")) }
+    var customSettingTextVal by remember(initialRule) { mutableStateOf(initialRule?.targetSettingValue ?: "") }
 
     // Dropdown states
     var leftDropdownExpanded by remember { mutableStateOf(false) }
@@ -314,7 +459,7 @@ fun CreateAutomationRuleDialog(
                                 expanded = opDropdownExpanded,
                                 onDismissRequest = { opDropdownExpanded = false }
                             ) {
-                                ComparisonOperator.values().forEach { op ->
+                                ComparisonOperator.entries.forEach { op ->
                                     DropdownMenuItem(
                                         text = { Text("${op.symbol} — ${op.label}") },
                                         onClick = {
@@ -387,84 +532,122 @@ fun CreateAutomationRuleDialog(
                     // ACTION HEADER
                     item {
                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                        Text("THEN (Inverter Action)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("THEN (Action)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
 
-                    // Target Setting Dropdown
+                    // Action Type Selector (Inverter Setting vs Notification)
                     item {
-                        ExposedDropdownMenuBox(
-                            expanded = fieldDropdownExpanded,
-                            onExpandedChange = { fieldDropdownExpanded = !fieldDropdownExpanded }
-                        ) {
-                            OutlinedTextField(
-                                value = selectedField?.name ?: "Select Inverter Setting",
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Inverter Setting to Change") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fieldDropdownExpanded) },
-                                modifier = Modifier.menuAnchor().fillMaxWidth()
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = selectedActionType == ActionType.INVERTER_SETTING,
+                                onClick = { selectedActionType = ActionType.INVERTER_SETTING },
+                                label = { Text("Change Setting") }
                             )
-                            ExposedDropdownMenu(
+                            FilterChip(
+                                selected = selectedActionType == ActionType.MOBILE_NOTIFICATION,
+                                onClick = { selectedActionType = ActionType.MOBILE_NOTIFICATION },
+                                label = { Text("Send Notification") }
+                            )
+                        }
+                    }
+
+                    if (selectedActionType == ActionType.INVERTER_SETTING) {
+                        // Target Setting Dropdown
+                        item {
+                            ExposedDropdownMenuBox(
                                 expanded = fieldDropdownExpanded,
-                                onDismissRequest = { fieldDropdownExpanded = false }
+                                onExpandedChange = { fieldDropdownExpanded = !fieldDropdownExpanded }
                             ) {
-                                availableFields.forEach { f ->
-                                    DropdownMenuItem(
-                                        text = { Text(f.name) },
-                                        onClick = {
-                                            selectedField = f
-                                            selectedOptionKey = f.options.keys.firstOrNull() ?: ""
-                                            selectedOptionDisplay = f.options[selectedOptionKey] ?: ""
-                                            fieldDropdownExpanded = false
+                                OutlinedTextField(
+                                    value = selectedField?.name ?: "Select Inverter Setting",
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Inverter Setting to Change") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fieldDropdownExpanded) },
+                                    modifier = Modifier.menuAnchor().fillMaxWidth()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = fieldDropdownExpanded,
+                                    onDismissRequest = { fieldDropdownExpanded = false }
+                                ) {
+                                    availableFields.forEach { f ->
+                                        DropdownMenuItem(
+                                            text = { Text(f.name) },
+                                            onClick = {
+                                                selectedField = f
+                                                selectedOptionKey = f.options.keys.firstOrNull() ?: ""
+                                                selectedOptionDisplay = f.options[selectedOptionKey] ?: ""
+                                                fieldDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Value Option Selection for the Target Setting
+                        if (selectedField != null) {
+                            if (selectedField!!.options.isNotEmpty()) {
+                                item {
+                                    ExposedDropdownMenuBox(
+                                        expanded = optionDropdownExpanded,
+                                        onExpandedChange = { optionDropdownExpanded = !optionDropdownExpanded }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = selectedOptionDisplay.ifEmpty { selectedOptionKey },
+                                            onValueChange = {},
+                                            readOnly = true,
+                                            label = { Text("Target Setting Value") },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = optionDropdownExpanded) },
+                                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                                        )
+                                        ExposedDropdownMenu(
+                                            expanded = optionDropdownExpanded,
+                                            onDismissRequest = { optionDropdownExpanded = false }
+                                        ) {
+                                            selectedField!!.options.forEach { (k, v) ->
+                                                DropdownMenuItem(
+                                                    text = { Text("$v ($k)") },
+                                                    onClick = {
+                                                        selectedOptionKey = k
+                                                        selectedOptionDisplay = v
+                                                        optionDropdownExpanded = false
+                                                    }
+                                                )
+                                            }
                                         }
+                                    }
+                                }
+                            } else {
+                                item {
+                                    OutlinedTextField(
+                                        value = customSettingTextVal,
+                                        onValueChange = { customSettingTextVal = it },
+                                        label = { Text("Target Value ${selectedField?.unit ?: ""}") },
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
                         }
-                    }
-
-                    // Value Option Selection for the Target Setting
-                    if (selectedField != null) {
-                        if (selectedField!!.options.isNotEmpty()) {
-                            item {
-                                ExposedDropdownMenuBox(
-                                    expanded = optionDropdownExpanded,
-                                    onExpandedChange = { optionDropdownExpanded = !optionDropdownExpanded }
-                                ) {
-                                    OutlinedTextField(
-                                        value = selectedOptionDisplay.ifEmpty { selectedOptionKey },
-                                        onValueChange = {},
-                                        readOnly = true,
-                                        label = { Text("Target Setting Value") },
-                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = optionDropdownExpanded) },
-                                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                                    )
-                                    ExposedDropdownMenu(
-                                        expanded = optionDropdownExpanded,
-                                        onDismissRequest = { optionDropdownExpanded = false }
-                                    ) {
-                                        selectedField!!.options.forEach { (k, v) ->
-                                            DropdownMenuItem(
-                                                text = { Text("$v ($k)") },
-                                                onClick = {
-                                                    selectedOptionKey = k
-                                                    selectedOptionDisplay = v
-                                                    optionDropdownExpanded = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            item {
-                                OutlinedTextField(
-                                    value = customSettingTextVal,
-                                    onValueChange = { customSettingTextVal = it },
-                                    label = { Text("Target Value ${selectedField?.unit ?: ""}") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
+                    } else {
+                        // Mobile Notification Config
+                        item {
+                            OutlinedTextField(
+                                value = notificationTitleText,
+                                onValueChange = { notificationTitleText = it },
+                                label = { Text("Notification Title") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        item {
+                            OutlinedTextField(
+                                value = notificationTemplateText,
+                                onValueChange = { notificationTemplateText = it },
+                                label = { Text("Notification Message") },
+                                placeholder = { Text("Use {SOC}, {Battery Voltage}, {PV Power} etc") },
+                                supportingText = { Text("Tip: Use {ParameterName} to inject live values") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 }
@@ -472,22 +655,39 @@ fun CreateAutomationRuleDialog(
         },
         confirmButton = {
             Button(
-                enabled = ruleName.isNotBlank() && selectedField != null,
+                enabled = ruleName.isNotBlank() && (selectedActionType == ActionType.MOBILE_NOTIFICATION || selectedField != null),
                 onClick = {
-                    val targetVal = if (selectedField!!.options.isNotEmpty()) selectedOptionKey else customSettingTextVal
-                    val targetDisplay = if (selectedField!!.options.isNotEmpty()) selectedOptionDisplay else customSettingTextVal
+                    val targetVal = if (selectedField?.options?.isNotEmpty() == true) selectedOptionKey else customSettingTextVal
+                    val targetDisplay = if (selectedField?.options?.isNotEmpty() == true) selectedOptionDisplay else customSettingTextVal
 
-                    val rule = AutomationRule(
+                    val rule = initialRule?.copy(
                         name = ruleName,
                         leftParameter = selectedLeftParam,
                         operator = selectedOperator,
                         rightOperandType = rightOperandType,
                         rightCustomValue = rightCustomValText.toDoubleOrNull() ?: 0.0,
                         rightParameter = if (rightOperandType == RightOperandType.PARAMETER) selectedRightParam else null,
-                        targetSettingId = selectedField!!.id,
-                        targetSettingName = selectedField!!.name,
-                        targetSettingValue = targetVal,
-                        targetSettingValueDisplay = targetDisplay
+                        actionType = selectedActionType,
+                        targetSettingId = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.id else null,
+                        targetSettingName = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.name else null,
+                        targetSettingValue = if (selectedActionType == ActionType.INVERTER_SETTING) targetVal else null,
+                        targetSettingValueDisplay = if (selectedActionType == ActionType.INVERTER_SETTING) targetDisplay else null,
+                        notificationTitle = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTitleText else null,
+                        notificationMessageTemplate = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTemplateText else null
+                    ) ?: AutomationRule(
+                        name = ruleName,
+                        leftParameter = selectedLeftParam,
+                        operator = selectedOperator,
+                        rightOperandType = rightOperandType,
+                        rightCustomValue = rightCustomValText.toDoubleOrNull() ?: 0.0,
+                        rightParameter = if (rightOperandType == RightOperandType.PARAMETER) selectedRightParam else null,
+                        actionType = selectedActionType,
+                        targetSettingId = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.id else null,
+                        targetSettingName = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.name else null,
+                        targetSettingValue = if (selectedActionType == ActionType.INVERTER_SETTING) targetVal else null,
+                        targetSettingValueDisplay = if (selectedActionType == ActionType.INVERTER_SETTING) targetDisplay else null,
+                        notificationTitle = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTitleText else null,
+                        notificationMessageTemplate = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTemplateText else null
                     )
                     onSave(rule)
                 }
