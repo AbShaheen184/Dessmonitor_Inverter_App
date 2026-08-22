@@ -27,7 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.dessmonitor.smartess.data.models.ActionType
+import androidx.compose.ui.unit.sp
 import com.dessmonitor.smartess.data.models.AutomationRule
 import com.dessmonitor.smartess.data.models.ComparisonOperator
 import com.dessmonitor.smartess.data.models.DeviceInfo
@@ -35,7 +35,7 @@ import com.dessmonitor.smartess.data.models.RightOperandType
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AutomationsDialog(
     repository: DeviceRepository,
@@ -108,24 +108,29 @@ fun AutomationsDialog(
                 }
 
                 if (conditionMet) {
-                    if (rule.actionType == ActionType.INVERTER_SETTING) {
-                        if (rule.targetSettingId != null && rule.targetSettingValue != null) {
-                            statusMessage = "Condition met for '${rule.name}'. Triggering setting: ${rule.targetSettingName} = ${rule.targetSettingValueDisplay}..."
-                            repository.setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
-                        }
-                    } else {
-                        // Mobile Notification Action
+                    val actionsTriggered = mutableListOf<String>()
+
+                    // Action 1: Inverter Setting Change (if enabled)
+                    if (rule.enableInverterSettingAction && rule.targetSettingId != null && rule.targetSettingValue != null) {
+                        actionsTriggered.add("Setting: ${rule.targetSettingName} → ${rule.targetSettingValueDisplay}")
+                        repository.setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
+                    }
+
+                    // Action 2: Mobile Notification (if enabled)
+                    if (rule.enableNotificationAction) {
                         var formattedMessage = rule.notificationMessageTemplate ?: "Condition met for ${rule.name}"
                         activeDevice.dataPoints.forEach { dp ->
                             formattedMessage = formattedMessage.replace("{${dp.title}}", "${dp.value} ${dp.unit ?: ""}".trim(), ignoreCase = true)
                         }
-                        statusMessage = "Condition met for '${rule.name}'. Sending mobile notification..."
+                        actionsTriggered.add("Mobile Notification")
                         com.dessmonitor.smartess.utils.NotificationUtils.sendNotification(
                             context = context,
                             title = rule.notificationTitle ?: rule.name,
                             message = formattedMessage
                         )
                     }
+
+                    statusMessage = "Condition met for '${rule.name}'. Triggered: ${actionsTriggered.joinToString(", ")}"
                 }
             }
             statusMessage = "Automation evaluation complete."
@@ -264,21 +269,19 @@ fun AutomationsDialog(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
-                                            if (rule.actionType == ActionType.INVERTER_SETTING) {
-                                                Text(
-                                                    "THEN SET ${rule.targetSettingName ?: ""} → ${rule.targetSettingValueDisplay ?: ""}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
-                                            } else {
-                                                Text(
-                                                    "THEN NOTIFY: \"${rule.notificationMessageTemplate ?: ""}\"",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
+                                            val actionsList = mutableListOf<String>()
+                                            if (rule.enableInverterSettingAction) {
+                                                actionsList.add("SET ${rule.targetSettingName ?: ""} → ${rule.targetSettingValueDisplay ?: ""}")
                                             }
+                                            if (rule.enableNotificationAction) {
+                                                actionsList.add("NOTIFY: \"${rule.notificationMessageTemplate ?: ""}\"")
+                                            }
+                                            Text(
+                                                "THEN ${actionsList.joinToString(" AND ")}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
                                         }
                                         Switch(
                                             checked = rule.isEnabled,
@@ -352,7 +355,7 @@ fun AutomationsDialog(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CreateAutomationRuleDialog(
     initialRule: AutomationRule? = null,
@@ -368,9 +371,11 @@ fun CreateAutomationRuleDialog(
     var rightCustomValText by remember(initialRule) { mutableStateOf(initialRule?.rightCustomValue?.toString() ?: "1000") }
     var selectedRightParam by remember(initialRule) { mutableStateOf(initialRule?.rightParameter ?: (telemetryTitles.firstOrNull() ?: "Output Power")) }
 
-    var selectedActionType by remember(initialRule) { mutableStateOf(initialRule?.actionType ?: ActionType.INVERTER_SETTING) }
+    var enableInverterSettingAction by remember(initialRule) { mutableStateOf(initialRule?.enableInverterSettingAction ?: true) }
+    var enableNotificationAction by remember(initialRule) { mutableStateOf(initialRule?.enableNotificationAction ?: false) }
     var notificationTitleText by remember(initialRule) { mutableStateOf(initialRule?.notificationTitle ?: "Automation Alert") }
-    var notificationTemplateText by remember(initialRule) { mutableStateOf(initialRule?.notificationMessageTemplate ?: "The battery is {SOC}% / {Battery Voltage}V") }
+    var notificationTemplateText by remember(initialRule) { mutableStateOf(initialRule?.notificationMessageTemplate ?: "The battery is {SOC} and voltage is {Battery Voltage}") }
+    var paramDropdownExpanded by remember { mutableStateOf(false) }
 
     var selectedField by remember(initialRule, availableFields) {
         mutableStateOf(
@@ -532,26 +537,35 @@ fun CreateAutomationRuleDialog(
                     // ACTION HEADER
                     item {
                         HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                        Text("THEN (Action)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("THEN (Actions - Select One or Both)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
 
-                    // Action Type Selector (Inverter Setting vs Notification)
+                    // Multi-action checkboxes
                     item {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = selectedActionType == ActionType.INVERTER_SETTING,
-                                onClick = { selectedActionType = ActionType.INVERTER_SETTING },
-                                label = { Text("Change Setting") }
-                            )
-                            FilterChip(
-                                selected = selectedActionType == ActionType.MOBILE_NOTIFICATION,
-                                onClick = { selectedActionType = ActionType.MOBILE_NOTIFICATION },
-                                label = { Text("Send Notification") }
-                            )
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { enableInverterSettingAction = !enableInverterSettingAction }
+                            ) {
+                                Checkbox(checked = enableInverterSettingAction, onCheckedChange = { enableInverterSettingAction = it })
+                                Spacer(Modifier.width(8.dp))
+                                Text("Change Inverter Setting", fontWeight = FontWeight.Medium)
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { enableNotificationAction = !enableNotificationAction }
+                            ) {
+                                Checkbox(checked = enableNotificationAction, onCheckedChange = { enableNotificationAction = it })
+                                Spacer(Modifier.width(8.dp))
+                                Text("Send Mobile Notification", fontWeight = FontWeight.Medium)
+                            }
                         }
                     }
 
-                    if (selectedActionType == ActionType.INVERTER_SETTING) {
+                    if (enableInverterSettingAction) {
+                        item {
+                            Text("1. Inverter Setting Action", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                        }
                         // Target Setting Dropdown
                         item {
                             ExposedDropdownMenuBox(
@@ -629,8 +643,12 @@ fun CreateAutomationRuleDialog(
                                 }
                             }
                         }
-                    } else {
-                        // Mobile Notification Config
+                    }
+
+                    if (enableNotificationAction) {
+                        item {
+                            Text("2. Mobile Notification Action", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                        }
                         item {
                             OutlinedTextField(
                                 value = notificationTitleText,
@@ -640,14 +658,49 @@ fun CreateAutomationRuleDialog(
                             )
                         }
                         item {
-                            OutlinedTextField(
-                                value = notificationTemplateText,
-                                onValueChange = { notificationTemplateText = it },
-                                label = { Text("Notification Message") },
-                                placeholder = { Text("Use {SOC}, {Battery Voltage}, {PV Power} etc") },
-                                supportingText = { Text("Tip: Use {ParameterName} to inject live values") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            Column {
+                                ExposedDropdownMenuBox(
+                                    expanded = paramDropdownExpanded,
+                                    onExpandedChange = { paramDropdownExpanded = !paramDropdownExpanded }
+                                ) {
+                                    OutlinedTextField(
+                                        value = notificationTemplateText,
+                                        onValueChange = { notificationTemplateText = it },
+                                        label = { Text("Notification Message") },
+                                        placeholder = { Text("Use {SOC}, {Battery Voltage}, {PV Power} etc") },
+                                        supportingText = { Text("Tip: Select parameters below or type '{' to insert live values") },
+                                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = paramDropdownExpanded,
+                                        onDismissRequest = { paramDropdownExpanded = false }
+                                    ) {
+                                        telemetryTitles.forEach { title ->
+                                            DropdownMenuItem(
+                                                text = { Text("{$title}") },
+                                                onClick = {
+                                                    notificationTemplateText = "$notificationTemplateText {$title}"
+                                                    paramDropdownExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(Modifier.height(4.dp))
+                                Text("Insert Parameter Placeholders:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                Spacer(Modifier.height(4.dp))
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    telemetryTitles.forEach { title ->
+                                        AssistChip(
+                                            onClick = {
+                                                notificationTemplateText = "$notificationTemplateText {$title}"
+                                            },
+                                            label = { Text("{$title}", fontSize = 11.sp) }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -655,7 +708,9 @@ fun CreateAutomationRuleDialog(
         },
         confirmButton = {
             Button(
-                enabled = ruleName.isNotBlank() && (selectedActionType == ActionType.MOBILE_NOTIFICATION || selectedField != null),
+                enabled = ruleName.isNotBlank() && 
+                        (enableInverterSettingAction || enableNotificationAction) && 
+                        (!enableInverterSettingAction || selectedField != null),
                 onClick = {
                     val targetVal = if (selectedField?.options?.isNotEmpty() == true) selectedOptionKey else customSettingTextVal
                     val targetDisplay = if (selectedField?.options?.isNotEmpty() == true) selectedOptionDisplay else customSettingTextVal
@@ -667,13 +722,14 @@ fun CreateAutomationRuleDialog(
                         rightOperandType = rightOperandType,
                         rightCustomValue = rightCustomValText.toDoubleOrNull() ?: 0.0,
                         rightParameter = if (rightOperandType == RightOperandType.PARAMETER) selectedRightParam else null,
-                        actionType = selectedActionType,
-                        targetSettingId = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.id else null,
-                        targetSettingName = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.name else null,
-                        targetSettingValue = if (selectedActionType == ActionType.INVERTER_SETTING) targetVal else null,
-                        targetSettingValueDisplay = if (selectedActionType == ActionType.INVERTER_SETTING) targetDisplay else null,
-                        notificationTitle = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTitleText else null,
-                        notificationMessageTemplate = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTemplateText else null
+                        enableInverterSettingAction = enableInverterSettingAction,
+                        enableNotificationAction = enableNotificationAction,
+                        targetSettingId = if (enableInverterSettingAction) selectedField?.id else null,
+                        targetSettingName = if (enableInverterSettingAction) selectedField?.name else null,
+                        targetSettingValue = if (enableInverterSettingAction) targetVal else null,
+                        targetSettingValueDisplay = if (enableInverterSettingAction) targetDisplay else null,
+                        notificationTitle = if (enableNotificationAction) notificationTitleText else null,
+                        notificationMessageTemplate = if (enableNotificationAction) notificationTemplateText else null
                     ) ?: AutomationRule(
                         name = ruleName,
                         leftParameter = selectedLeftParam,
@@ -681,13 +737,14 @@ fun CreateAutomationRuleDialog(
                         rightOperandType = rightOperandType,
                         rightCustomValue = rightCustomValText.toDoubleOrNull() ?: 0.0,
                         rightParameter = if (rightOperandType == RightOperandType.PARAMETER) selectedRightParam else null,
-                        actionType = selectedActionType,
-                        targetSettingId = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.id else null,
-                        targetSettingName = if (selectedActionType == ActionType.INVERTER_SETTING) selectedField?.name else null,
-                        targetSettingValue = if (selectedActionType == ActionType.INVERTER_SETTING) targetVal else null,
-                        targetSettingValueDisplay = if (selectedActionType == ActionType.INVERTER_SETTING) targetDisplay else null,
-                        notificationTitle = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTitleText else null,
-                        notificationMessageTemplate = if (selectedActionType == ActionType.MOBILE_NOTIFICATION) notificationTemplateText else null
+                        enableInverterSettingAction = enableInverterSettingAction,
+                        enableNotificationAction = enableNotificationAction,
+                        targetSettingId = if (enableInverterSettingAction) selectedField?.id else null,
+                        targetSettingName = if (enableInverterSettingAction) selectedField?.name else null,
+                        targetSettingValue = if (enableInverterSettingAction) targetVal else null,
+                        targetSettingValueDisplay = if (enableInverterSettingAction) targetDisplay else null,
+                        notificationTitle = if (enableNotificationAction) notificationTitleText else null,
+                        notificationMessageTemplate = if (enableNotificationAction) notificationTemplateText else null
                     )
                     onSave(rule)
                 }
