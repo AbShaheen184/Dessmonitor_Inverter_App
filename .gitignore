@@ -6,7 +6,7 @@
 *.class
 bin/
 build/
-app/build/
+app/
 .gradle/
 .kotlin/
 .artifacts/
