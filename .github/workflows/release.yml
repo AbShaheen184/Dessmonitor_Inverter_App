@@ -6,12 +6,13 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    name: Build Android APK & GitHub Release
+    name: Build Android APK
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout Repository
@@ -26,24 +27,21 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Debug & Release APK
+      - name: Build APKs
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x gradlew
-            ./gradlew assembleDebug assembleRelease --no-daemon
-          else
-            gradle assembleDebug assembleRelease --no-daemon
-          fi
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleRelease --no-daemon
 
-      - name: Prepare Release Artifacts
+      - name: Prepare Artifacts
         run: |
           mkdir -p artifacts
-          # Find and copy the debug APK
-          find app/build/outputs/apk/debug -name "*.apk" -exec cp {} artifacts/DessMonitor-SmartESS-debug.apk \;
-          # Find and copy the release APK (signed or unsigned)
-          find app/build/outputs/apk/release -name "*.apk" -exec cp {} artifacts/DessMonitor-SmartESS-release.apk \;
+          find app/build/outputs/apk -name "*.apk" -exec cp {} artifacts/ \;
+          # Rename for clarity if needed, or just upload all
+          mv artifacts/app-debug.apk artifacts/DessMonitor-SmartESS-debug.apk || true
+          # Grab the first release APK found
+          mv artifacts/app-release-unsigned.apk artifacts/DessMonitor-SmartESS-release.apk || mv artifacts/app-release.apk artifacts/DessMonitor-SmartESS-release.apk || true
 
-      - name: Upload Build Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: app-apks
@@ -54,10 +52,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
           files: artifacts/*.apk
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || format('Manual Build #{0}', github.run_number) }}
-          draft: false
-          prerelease: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
