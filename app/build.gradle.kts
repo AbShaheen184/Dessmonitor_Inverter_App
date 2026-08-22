@@ -51,7 +51,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
     
     // Compose
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.01")
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -62,6 +62,7 @@ dependencies {
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.activity:activity-compose")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose")
+    debugImplementation("androidx.compose.ui:ui-tooling")
     
     // Network
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
@@ -90,6 +91,9 @@ dependencies {
     
     // Charts (for data visualization)
     implementation("com.github.PhilJay:MPAndroidChart:3.1.0")
+
+    // Real backdrop (frosted-glass) blur — GPU blur on Android 12+, graceful fallback below
+    implementation("dev.chrisbanes.haze:haze:1.0.0")
     
     // Material Design
     implementation("com.google.android.material:material:1.10.0")

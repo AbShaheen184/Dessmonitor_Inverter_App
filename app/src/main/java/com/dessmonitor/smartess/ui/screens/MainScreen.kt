@@ -23,12 +23,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.navigation.NavType
 
 import androidx.compose.runtime.livedata.observeAsState
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
 import com.dessmonitor.smartess.ui.components.FloatingNavigationBar
-import com.dessmonitor.smartess.ui.components.GlassSurface
 import com.dessmonitor.smartess.ui.components.NavigationItem
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
@@ -38,6 +41,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object History : Screen("history", "History", Icons.Default.History)
     object Alarms : Screen("alarms", "Alarms", Icons.Default.Notifications)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+    object Themes : Screen("theme_settings", "Themes", Icons.Default.Palette)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,6 +50,8 @@ fun MainScreen(repository: DeviceRepository) {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    // Shared blur state that links the background content (source) to the nav bar (child).
+    val hazeState = remember { HazeState() }
     
     val items = listOf(
         Screen.Home,
@@ -96,7 +102,7 @@ fun MainScreen(repository: DeviceRepository) {
                     icon = { Icon(Icons.Default.Palette, null) },
                     onClick = {
                         scope.launch { drawerState.close() }
-                        navController.navigate(Screen.Settings.route)
+                        navController.navigate(Screen.Themes.route)
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
@@ -106,7 +112,7 @@ fun MainScreen(repository: DeviceRepository) {
                     icon = { Icon(Icons.Default.AppSettingsAlt, null) },
                     onClick = {
                         scope.launch { drawerState.close() }
-                        navController.navigate(Screen.Settings.route)
+                        navController.navigate("settings?category=General")
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
@@ -120,18 +126,22 @@ fun MainScreen(repository: DeviceRepository) {
             }
         }
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surface,
-                            MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Background gradient + navigable content. This whole subtree is registered
+            // as the Haze blur *source*, so the nav bar can sample & blur it live.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .haze(state = hazeState)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.surface,
+                                MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
+                            )
                         )
                     )
-                )
-        ) {
+            ) {
             NavHost(
                 navController = navController,
                 startDestination = Screen.Home.route,
@@ -196,30 +206,48 @@ fun MainScreen(repository: DeviceRepository) {
                         onMenuClick = { scope.launch { drawerState.open() } }
                     ) 
                 }
-                composable(Screen.Settings.route) {
+                composable(Screen.Themes.route) {
+                    ThemeScreen(
+                        repository = repository,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(
+                    route = Screen.Settings.route + "?category={category}",
+                    arguments = listOf(navArgument("category") { 
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    })
+                ) { backStackEntry ->
+                    val category = backStackEntry.arguments?.getString("category")
                     val device = devices.firstOrNull()
                     if (device != null) {
                         SettingsScreen(
                             repository = repository,
                             device = device,
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            initialCategory = category
                         )
                     } else {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No device available")
                         }
                     }
                 }
             }
+            } // end Haze source (the blurred background)
 
-            // Floating Glass Navigation Bar
+            // Floating Glass Navigation Bar — a sibling of the source, so it blurs
+            // the content behind it without blurring itself.
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
-            
+
             FloatingNavigationBar(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 items = items.map { NavigationItem(it.route, it.title, it.icon) },
                 currentRoute = currentRoute,
+                hazeState = hazeState,
                 onItemClick = { route ->
                     navController.navigate(route) {
                         popUpTo(navController.graph.startDestinationId) {

@@ -78,7 +78,7 @@ fun AlarmsScreen(
                     .padding(padding)
             ) {
                 items(dbAlarms) { alarm ->
-                    val name = alarm.name
+                    val name = alarm.name.ifBlank { alarm.descx?.takeIf { it.isNotBlank() } ?: "Alarm Event" }
                     val time = alarm.time
                     val status = if (alarm.status == 1) "Active" else "Cleared"
                     
@@ -90,14 +90,17 @@ fun AlarmsScreen(
                     ) {
                         ListItem(
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                            headlineContent = { Text(name, fontWeight = FontWeight.Bold) },
+                            headlineContent = { Text(name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) },
                             supportingContent = { 
                                 Column {
-                                    Text(time, style = MaterialTheme.typography.labelSmall)
-                                    if (!alarm.descx.isNullOrEmpty()) {
-                                        Text(alarm.descx, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (!alarm.descx.isNullOrEmpty() && alarm.descx != name) {
+                                        Text(alarm.descx, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
+                                    if (time.isNotEmpty()) {
+                                        Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
                                     Surface(
                                         color = (if (status == "Active") MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer).copy(alpha = 0.6f),
                                         shape = MaterialTheme.shapes.extraSmall

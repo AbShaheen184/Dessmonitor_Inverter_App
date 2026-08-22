@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -23,16 +24,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
 
 @Composable
 fun FloatingNavigationBar(
     items: List<NavigationItem>,
     currentRoute: String?,
     onItemClick: (String) -> Unit,
+    hazeState: HazeState,
     modifier: Modifier = Modifier
 ) {
     val selectedIndex = remember(currentRoute) {
-        items.indexOfFirst { it.route == currentRoute }.coerceAtLeast(0)
+        items.indexOfFirst { 
+            it.route == currentRoute || (currentRoute != null && currentRoute.startsWith("${it.route}?"))
+        }.coerceAtLeast(0)
     }
 
     val itemWidths = remember { mutableStateMapOf<Int, Int>() }
@@ -62,11 +67,13 @@ fun FloatingNavigationBar(
         contentAlignment = Alignment.Center
     ) {
         GlassSurface(
+            hazeState = hazeState,
             cornerRadius = 36.dp,
+            blurRadius = 30.dp,
             modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize().padding(6.dp)) {
-                // Animated Indicator Pill
+                // Animated Liquid Selection Pill Indicator
                 if (currentItemWidth > 0.dp) {
                     Box(
                         modifier = Modifier
@@ -74,9 +81,14 @@ fun FloatingNavigationBar(
                             .width(currentItemWidth)
                             .fillMaxHeight()
                             .padding(4.dp)
+                            .clip(CircleShape)
                             .background(
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                shape = CircleShape
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                                    )
+                                )
                             )
                     )
                 }
@@ -88,12 +100,13 @@ fun FloatingNavigationBar(
                     items.forEachIndexed { index, item ->
                         val isSelected = index == selectedIndex
                         val contentColor by animateColorAsState(
-                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                             label = "contentColor"
                         )
                         
                         val itemScale by animateFloatAsState(
-                            targetValue = if (isSelected) 1.1f else 1.0f,
+                            targetValue = if (isSelected) 1.15f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f),
                             label = "itemScale"
                         )
 
@@ -127,7 +140,7 @@ fun FloatingNavigationBar(
                                     text = item.title,
                                     color = contentColor,
                                     fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                                 )
                             }
                         }

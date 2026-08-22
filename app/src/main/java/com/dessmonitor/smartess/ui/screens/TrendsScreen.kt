@@ -210,16 +210,23 @@ fun TrendsScreen(
         if (minE == Long.MAX_VALUE) 0L else minE
     }
 
-    fun getEntriesForSensor(sensorName: String): List<Entry> {
-        val entries = mutableListOf<Entry>()
+    val activePaletteColors = repository.getActivePalette().map { Color(android.graphics.Color.parseColor(it)) }
+
+    val lineData = remember(historyJson, referenceEpoch, selectedSensors, activePaletteColors) {
+        if (historyJson == null || selectedSensors.isEmpty()) return@remember null
+
         val dat = historyJson?.optJSONObject("dat")
         val items = dat?.optJSONArray("data") ?: dat?.optJSONArray("detail") ?: dat?.optJSONArray("list") ?: historyJson?.optJSONArray("dat")
-        
-        if (items != null) {
-            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        if (items == null) return@remember null
+
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+        val sortedSelected = selectedSensors.toList().sorted()
+
+        val dataSets = sortedSelected.mapIndexed { index, sensor ->
+            val entries = mutableListOf<Entry>()
             for (i in 0 until items.length()) {
                 val obj = items.getJSONObject(i)
-                if (obj.optString("title").equals(sensorName, true)) {
+                if (obj.optString("title").equals(sensor, true)) {
                     val ts = obj.optString("ts").ifEmpty { obj.optString("time") }
                     val unit = obj.optString("unit", "")
                     try {
@@ -229,8 +236,32 @@ fun TrendsScreen(
                     } catch (_: Exception) {}
                 }
             }
+
+            val sensorColor = when {
+                sensor.contains("PV", true) -> activePaletteColors[0].toArgb()
+                sensor.contains("Output", true) || sensor.contains("Load", true) -> activePaletteColors[1].toArgb()
+                sensor.contains("Grid", true) -> activePaletteColors[2].toArgb()
+                sensor.contains("Discharge", true) || sensor.contains("Battery", true) -> activePaletteColors[3].toArgb()
+                else -> if (activePaletteColors.size > 4) activePaletteColors[4].toArgb() else activePaletteColors[index % activePaletteColors.size].toArgb()
+            }
+
+            LineDataSet(entries.sortedBy { it.x }, sensor).apply {
+                color = sensorColor
+                setDrawCircles(false)
+                setDrawValues(false)
+                lineWidth = 1.2f 
+                mode = LineDataSet.Mode.CUBIC_BEZIER
+                highLightColor = android.graphics.Color.LTGRAY
+                setDrawHorizontalHighlightIndicator(false)
+                
+                setDrawFilled(true)
+                fillDrawable = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(sensorColor, android.graphics.Color.TRANSPARENT)
+                ).apply { alpha = 50 }
+            }
         }
-        return entries.sortedBy { it.x }
+        LineData(dataSets)
     }
 
     Scaffold(
@@ -394,7 +425,6 @@ fun TrendsScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                val activePaletteColors = repository.getActivePalette().map { Color(android.graphics.Color.parseColor(it)) }
                 val chartAxisColor = MaterialTheme.colorScheme.onSurface.toArgb()
                 val chartGridColor = MaterialTheme.colorScheme.outlineVariant.toArgb()
 
@@ -467,33 +497,7 @@ fun TrendsScreen(
                                         }
                                     }
 
-                                    val sortedSelected = selectedSensors.toList().sorted()
-                                    val dataSets = sortedSelected.mapIndexed { index, sensor ->
-                                        val sensorColor = when {
-                                            sensor.contains("PV", true) -> activePaletteColors[0].toArgb()
-                                            sensor.contains("Output", true) || sensor.contains("Load", true) -> activePaletteColors[1].toArgb()
-                                            sensor.contains("Grid", true) -> activePaletteColors[2].toArgb()
-                                            sensor.contains("Discharge", true) || sensor.contains("Battery", true) -> activePaletteColors[3].toArgb()
-                                            else -> if (activePaletteColors.size > 4) activePaletteColors[4].toArgb() else activePaletteColors[index % activePaletteColors.size].toArgb()
-                                        }
-                                        LineDataSet(getEntriesForSensor(sensor), sensor).apply {
-                                            color = sensorColor
-                                            setDrawCircles(false)
-                                            setDrawValues(false)
-                                            lineWidth = 1.0f 
-                                            mode = LineDataSet.Mode.CUBIC_BEZIER
-                                            highLightColor = android.graphics.Color.LTGRAY
-                                            setDrawHorizontalHighlightIndicator(false)
-                                            
-                                            // Modern gradient fill
-                                            setDrawFilled(true)
-                                            fillDrawable = GradientDrawable(
-                                                GradientDrawable.Orientation.TOP_BOTTOM,
-                                                intArrayOf(sensorColor, android.graphics.Color.TRANSPARENT)
-                                            ).apply { alpha = 65 }
-                                        }
-                                    }
-                                    chart.data = LineData(dataSets)
+                                    chart.data = lineData
                                     chart.notifyDataSetChanged()
                                     chart.invalidate()
                                 },

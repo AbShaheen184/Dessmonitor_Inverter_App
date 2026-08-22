@@ -454,12 +454,36 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 for (i in 0 until list.length()) {
                     val json = list.getJSONObject(i)
                     resultList.add(json)
+                    
+                    val alarmTitle = listOf(
+                        json.optString("name"),
+                        json.optString("title"),
+                        json.optString("alarmName"),
+                        json.optString("warnName"),
+                        json.optString("des"),
+                        json.optString("desc"),
+                        json.optString("descx"),
+                        json.optString("msg"),
+                        json.optString("content"),
+                        json.optString("err"),
+                        json.optString("error"),
+                        json.optString("info")
+                    ).firstOrNull { it.isNotBlank() } ?: "Alarm / Warning"
+
+                    val alarmTime = listOf(
+                        json.optString("gts"),
+                        json.optString("ts"),
+                        json.optString("time"),
+                        json.optString("occurTime"),
+                        json.optString("date")
+                    ).firstOrNull { it.isNotBlank() } ?: ""
+
                     entities.add(AlarmEntity(
-                        name = json.optString("name").ifEmpty { json.optString("descx") },
-                        time = json.optString("gts").ifEmpty { json.optString("ts") },
+                        name = alarmTitle,
+                        time = alarmTime,
                         status = json.optInt("status"),
                         deviceSn = device.serialNumber,
-                        descx = json.optString("descx"),
+                        descx = json.optString("descx").ifBlank { json.optString("desc") },
                         gts = json.optString("gts")
                     ))
                 }

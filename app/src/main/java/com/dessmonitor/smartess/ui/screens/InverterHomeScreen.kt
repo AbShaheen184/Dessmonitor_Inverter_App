@@ -86,22 +86,14 @@ fun InverterHomeScreen(
 
     val pullOffset by animateDpAsState(
         targetValue = when {
-            pullToRefreshState.isRefreshing -> 80.dp
-            pullToRefreshState.progress > 0f -> (80.dp * pullToRefreshState.progress).coerceAtMost(120.dp)
+            isRefreshing -> 80.dp
+            pullToRefreshState.distanceFraction > 0f -> (80.dp * pullToRefreshState.distanceFraction).coerceAtMost(120.dp)
             else -> 0.dp
         },
         label = "PullOffset"
     )
 
-    if (pullToRefreshState.isRefreshing) {
-        LaunchedEffect(true) {
-            isRefreshing = true
-            syncError = null
-            repository.loadDevices().onFailure { syncError = it.message }
-            isRefreshing = false
-            pullToRefreshState.endRefresh()
-        }
-    }
+    // Refresh logic moved to pullToRefresh modifier below
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -166,10 +158,21 @@ fun InverterHomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .nestedScroll(pullToRefreshState.nestedScrollConnection)
+                .pullToRefresh(
+                    state = pullToRefreshState,
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        scope.launch {
+                            isRefreshing = true
+                            syncError = null
+                            repository.loadDevices().onFailure { syncError = it.message }
+                            isRefreshing = false
+                        }
+                    }
+                )
         ) {
             // Pull to Refresh UI (Behind content, visible when pushed down)
-            if (pullToRefreshState.progress > 0f || pullToRefreshState.isRefreshing) {
+            if (pullToRefreshState.distanceFraction > 0f || isRefreshing) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -177,10 +180,10 @@ fun InverterHomeScreen(
                         .padding(top = 16.dp),
                     contentAlignment = Alignment.TopCenter
                 ) {
-                    if (pullToRefreshState.isRefreshing) {
+                    if (isRefreshing) {
                         CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                     } else {
-                        val rotation by animateFloatAsState(if (pullToRefreshState.progress >= 1f) 180f else 0f)
+                        val rotation by animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 Icons.Default.ArrowDownward,
@@ -191,7 +194,7 @@ fun InverterHomeScreen(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = if (pullToRefreshState.progress >= 1f) "Release to refresh" else "Pull down to refresh",
+                                text = if (pullToRefreshState.distanceFraction >= 1f) "Release to refresh" else "Pull down to refresh",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -213,119 +216,119 @@ fun InverterHomeScreen(
                     .verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (activeDevice == null) {
-                    CircularProgressIndicator(modifier = Modifier.padding(top = 32.dp))
-                    Text("Connecting to server...", modifier = Modifier.padding(top = 16.dp))
-                    
-                    LaunchedEffect(Unit) {
-                        repository.loadDevices().onFailure { syncError = it.message }
-                    }
-                } else {
-                    // Energy Flow Dashboard
-                    val pvPower = getNumeric("PV Power", "PV1 Input Power", "Solar Power")
-                    val loadPower = getNumeric("Output Power", "Load Power", "AC output active power")
-                    val gridVoltage = getNumeric("Grid Voltage", "AC Output Rating Voltage")
-                    val batteryCharge = getNumeric("Battery Charge Current", "Battery Charging Current")
-                    val batteryDischarge = getNumeric("Battery Discharge Current", "Battery Discharging Current")
-                    val workMode = getValue("Operating mode", "work state", "Inverter Mode")
-
-                    EnergyFlowSection(
-                        pvPowerValue = pvPower,
-                        gridPowerValue = if (workMode.contains("Line", true)) loadPower else 0.0,
-                        batteryChargeValue = batteryCharge,
-                        batteryDischargeValue = batteryDischarge,
-                        loadPowerValue = loadPower,
-                        pvPower = "$pvPower W",
-                        gridPower = if (gridVoltage > 50) "$gridVoltage V" else "0 V",
-                        batterySoc = getValue("SOC", "Battery Capacity"),
-                        batteryVoltage = getValue("Battery Voltage", "BMS battery voltage"),
-                        loadPower = "$loadPower W",
-                        workMode = workMode,
-                        onNodeClick = onTrendsClick
-                    )
-
-                    Spacer(modifier = Modifier.height(32.dp))
-                    
-                    // Detailed Statistics Title with Edit button
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                        shape = MaterialTheme.shapes.medium
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text(
-                                    "Telemetry",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                                Text("Live device data", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                            }
-                            FilledTonalIconButton(
-                                onClick = { showStatsDialog = true },
-                                modifier = Modifier.size(40.dp),
-                                shape = CircleShape
-                            ) {
-                                Icon(Icons.Default.Edit, contentDescription = "Customize", modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                    
-                    val statChunks = selectedStats.chunked(2)
-                    statChunks.forEach { chunk ->
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            chunk.forEach { statTitle ->
-                                StatusItem(
-                                    modifier = Modifier.weight(1f),
-                                    icon = when {
-                                        statTitle.contains("Yield", true) || statTitle.contains("Generation", true) || statTitle.contains("Energy", true) -> Icons.Default.SolarPower
-                                        statTitle.contains("Voltage", true) || statTitle.contains("Volt", true) -> Icons.Default.ElectricBolt
-                                        statTitle.contains("Temp", true) -> Icons.Default.DeviceThermostat
-                                        statTitle.contains("Power", true) -> Icons.Default.Bolt
-                                        statTitle.contains("Current", true) || statTitle.contains("Amp", true) -> Icons.Default.ElectricMeter
-                                        statTitle.contains("SOC", true) || statTitle.contains("Capacity", true) -> Icons.Default.BatteryStd
-                                        else -> Icons.Default.Info
-                                    },
-                                    label = statTitle,
-                                    value = getValue(statTitle)
-                                )
-                            }
-                            if (chunk.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-
-                    if (selectedStats.isEmpty()) {
-                        Text("No stats selected. Tap Customize to add.", style = MaterialTheme.typography.bodySmall)
-                    }
-
-                    syncError?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
-                    }
-                    
-                    Text(
-                        "Serial: ${activeDevice.serialNumber}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.padding(top = 16.dp)
-                    )
-                    
-                    Text(
-                        "Protocol: PI18 (Devcode ${activeDevice.devcode ?: "Unknown"})",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(110.dp))
+            if (activeDevice == null) {
+                CircularProgressIndicator(modifier = Modifier.padding(top = 32.dp))
+                Text("Connecting to server...", modifier = Modifier.padding(top = 16.dp))
+                
+                LaunchedEffect(Unit) {
+                    repository.loadDevices().onFailure { syncError = it.message }
                 }
+            } else {
+                // Energy Flow Dashboard
+                val pvPower = getNumeric("PV Power", "PV1 Input Power", "Solar Power")
+                val loadPower = getNumeric("Output Power", "Load Power", "AC output active power")
+                val gridVoltage = getNumeric("Grid Voltage", "AC Output Rating Voltage")
+                val batteryCharge = getNumeric("Battery Charge Current", "Battery Charging Current")
+                val batteryDischarge = getNumeric("Battery Discharge Current", "Battery Discharging Current")
+                val workMode = getValue("Operating mode", "work state", "Inverter Mode")
+
+                EnergyFlowSection(
+                    pvPowerValue = pvPower,
+                    gridPowerValue = if (workMode.contains("Line", true)) loadPower else 0.0,
+                    batteryChargeValue = batteryCharge,
+                    batteryDischargeValue = batteryDischarge,
+                    loadPowerValue = loadPower,
+                    pvPower = "$pvPower W",
+                    gridPower = if (gridVoltage > 50) "$gridVoltage V" else "0 V",
+                    batterySoc = getValue("SOC", "Battery Capacity"),
+                    batteryVoltage = getValue("Battery Voltage", "BMS battery voltage"),
+                    loadPower = "$loadPower W",
+                    workMode = workMode,
+                    onNodeClick = onTrendsClick
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+                
+                // Detailed Statistics Title with Edit button
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                "Telemetry",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text("Live device data", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        }
+                        FilledTonalIconButton(
+                            onClick = { showStatsDialog = true },
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = "Customize", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                
+                val statChunks = selectedStats.chunked(2)
+                statChunks.forEach { chunk ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        chunk.forEach { statTitle ->
+                            StatusItem(
+                                modifier = Modifier.weight(1f),
+                                icon = when {
+                                    statTitle.contains("Yield", true) || statTitle.contains("Generation", true) || statTitle.contains("Energy", true) -> Icons.Default.SolarPower
+                                    statTitle.contains("Voltage", true) || statTitle.contains("Volt", true) -> Icons.Default.ElectricBolt
+                                    statTitle.contains("Temp", true) -> Icons.Default.DeviceThermostat
+                                    statTitle.contains("Power", true) -> Icons.Default.Bolt
+                                    statTitle.contains("Current", true) || statTitle.contains("Amp", true) -> Icons.Default.ElectricMeter
+                                    statTitle.contains("SOC", true) || statTitle.contains("Capacity", true) -> Icons.Default.BatteryStd
+                                    else -> Icons.Default.Info
+                                },
+                                label = statTitle,
+                                value = getValue(statTitle)
+                            )
+                        }
+                        if (chunk.size == 1) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                if (selectedStats.isEmpty()) {
+                    Text("No stats selected. Tap Customize to add.", style = MaterialTheme.typography.bodySmall)
+                }
+
+                syncError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                }
+                
+                Text(
+                    "Serial: ${activeDevice.serialNumber}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+                
+                Text(
+                    "Protocol: PI18 (Devcode ${activeDevice.devcode ?: "Unknown"})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(110.dp))
             }
+        }
         }
 
         if (showStatsDialog && activeDevice != null) {

@@ -47,12 +47,13 @@ private fun categorizeSetting(name: String): String {
 fun SettingsScreen(
     repository: DeviceRepository,
     device: DeviceInfo,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    initialCategory: String? = null
 ) {
     var isLoading by remember { mutableStateOf(true) }
     var isSyncing by remember { mutableStateOf(false) }
     var fields by remember { mutableStateOf<List<ControlField>>(emptyList()) }
-    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var selectedCategory by remember { mutableStateOf<String?>(initialCategory) }
     val scope = rememberCoroutineScope()
 
     // Process fields helper
@@ -174,17 +175,19 @@ fun SettingsScreen(
     }
 
     // Background refresh logic
-    LaunchedEffect(device, selectedCategory) {
-        if (selectedCategory == null) {
-            // Initial component mount
-            repository.getControlFields(device).onSuccess { json ->
-                fields = processFields(json, device)
-                if (fields.isNotEmpty()) {
-                    selectedCategory = fields.first().category
-                }
-                isLoading = false
-            }.onFailure { isLoading = false }
-        } else if (!repository.isCategorySynced(selectedCategory!!)) {
+    LaunchedEffect(device) {
+        // Always load fields once on mount
+        repository.getControlFields(device).onSuccess { json ->
+            fields = processFields(json, device)
+            if (selectedCategory == null && fields.isNotEmpty()) {
+                selectedCategory = fields.first().category
+            }
+            isLoading = false
+        }.onFailure { isLoading = false }
+    }
+
+    LaunchedEffect(selectedCategory) {
+        if (selectedCategory != null && !repository.isCategorySynced(selectedCategory!!)) {
             // Background sync ONLY if not already synced in this session
             isSyncing = true
             coroutineScope {
@@ -217,20 +220,14 @@ fun SettingsScreen(
                 }
             }
             isSyncing = false
-            isLoading = false
-        } else {
-            // Already synced in session, just show cached fields
-            isLoading = false
         }
     }
 
     val categories = remember(fields) {
         val list = fields.map { it.category }.distinct().toMutableList()
-        if (!list.contains("Themes")) list.add("Themes")
         list.sortedBy { 
             // Custom order
             when(it) {
-                "Themes" -> -1
                 "System" -> 0
                 "PV / Solar" -> 1
                 "Output" -> 2
@@ -306,7 +303,7 @@ fun SettingsScreen(
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.secondary
                             )
-                            if (isSyncing && selectedCategory != "Themes") {
+                            if (isSyncing) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
                                     Spacer(Modifier.width(8.dp))
@@ -315,19 +312,13 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    if (selectedCategory == "Themes") {
-                        item {
-                            ThemeSettingsView(repository = repository)
-                        }
-                    } else {
-                        items(filteredFields) { field ->
-                            SettingsItem(field = field) { newValue ->
-                                scope.launch {
-                                    repository.setControlValue(device, field.id, newValue)
-                                }
+                    items(filteredFields) { field ->
+                        SettingsItem(field = field) { newValue ->
+                            scope.launch {
+                                repository.setControlValue(device, field.id, newValue)
                             }
-                            HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                         }
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                     }
                     item { Spacer(modifier = Modifier.height(110.dp)) }
                 }
