@@ -6,78 +6,85 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Outer Inverter Hex Shield / Container (Tech Frame) -->
+    <!-- 1. Sleek Glassmorphic Inverter Outer Frame (3D Chamfered Shield) -->
     <path
-        android:pathData="M54,26 L76,38.7 L76,64.3 L54,77 L32,64.3 L32,38.7 Z"
+        android:pathData="M54,23 C68,23 78,33 78,47 C78,61 68,77 54,84 C40,77 30,61 30,47 C30,33 40,23 54,23 Z"
+        android:strokeWidth="2"
+        android:strokeColor="#7DD3FC">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="30"
+                android:startY="23"
+                android:endX="78"
+                android:endY="84"
+                android:type="linear">
+                <item android:color="#2A38BDF8" android:offset="0.0"/>
+                <item android:color="#1A0284C7" android:offset="0.5"/>
+                <item android:color="#3A0F172A" android:offset="1.0"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- 2. Solar Energy Ring (Top Right Arc) -->
+    <path
+        android:pathData="M65,30 A 24,24 0 0,1 77,48"
+        android:strokeWidth="3.5"
+        android:strokeColor="#F59E0B"
+        android:strokeLineCap="round"/>
+
+    <!-- 3. Battery Green Energy Ring (Bottom Left Arc) -->
+    <path
+        android:pathData="M31,48 A 24,24 0 0,0 43,66"
+        android:strokeWidth="3.5"
+        android:strokeColor="#10B981"
+        android:strokeLineCap="round"/>
+
+    <!-- 4. AC Inverter Pulse Sine Wave (Middle Energy Bridge) -->
+    <path
+        android:pathData="M37,54 C42,46 46,46 49,54 C52,62 56,62 61,54"
         android:strokeWidth="2.5"
-        android:strokeColor="#64B5F6">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="32"
-                android:startY="26"
-                android:endX="76"
-                android:endY="77"
-                android:type="linear">
-                <item android:color="#330F172A" android:offset="0.0"/>
-                <item android:color="#661E293B" android:offset="1.0"/>
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Solar Sun (Top-Left Energy Source) -->
-    <path
-        android:pathData="M40,36 m-7,0 a7,7 0 1,0 14,0 a7,7 0 1,0 -14,0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="33"
-                android:startY="29"
-                android:endX="47"
-                android:endY="43"
-                android:type="linear">
-                <item android:color="#FFFFD54F" android:offset="0.0"/>
-                <item android:color="#FFFFB300" android:offset="1.0"/>
-            </gradient>
-        </aapt:attr>
-    </path>
-    <!-- Sun Rays -->
-    <path
-        android:pathData="M40,26 L40,24 M40,46 L40,48 M30,36 L28,36 M50,36 L52,36 M33,29 L31,27 M47,43 L49,45 M33,43 L31,45 M47,29 L49,27"
-        android:strokeWidth="1.8"
-        android:strokeColor="#FFD54F"
+        android:strokeColor="#E0F2FE"
         android:strokeLineCap="round"/>
 
-    <!-- Inverter AC Pulse Wave Symbol (Conversion Core) -->
+    <!-- 5. Powerful 3D Gold Energy Bolt (Center Core) -->
+    <!-- Bolt Shadow/Glow Base -->
     <path
-        android:pathData="M45,56 C47.5,50 50.5,50 53,56 C55.5,62 58.5,62 61,56"
-        android:strokeWidth="3"
-        android:strokeColor="#81D4FA"
-        android:strokeLineCap="round"/>
+        android:pathData="M57,30 L43,51 L52,51 L47,72 L65,48 L56,48 Z"
+        android:fillColor="#40F59E0B"/>
 
-    <!-- Dynamic Lightning Bolt (Inverter Energy Output) -->
+    <!-- Main Gold-to-Amber Bolt Body -->
     <path
-        android:pathData="M56,33 L45,51 L53,51 L48,69 L64,48 L56,48 Z">
+        android:pathData="M56,31 L44,50 L52,50 L48,70 L64,48 L56,48 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="45"
-                android:startY="33"
+                android:startX="44"
+                android:startY="31"
                 android:endX="64"
-                android:endY="69"
+                android:endY="70"
                 android:type="linear">
-                <item android:color="#FFFFE082" android:offset="0.0"/>
-                <item android:color="#FFFFB300" android:offset="0.5"/>
-                <item android:color="#FFFF6F00" android:offset="1.0"/>
+                <item android:color="#FFFDE047" android:offset="0.0"/>
+                <item android:color="#FFF59E0B" android:offset="0.5"/>
+                <item android:color="#FFEAB308" android:offset="1.0"/>
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Flow Dots / Nodes (Smart Monitoring Points) -->
+    <!-- Bolt Top Specular Highlight Edge -->
     <path
-        android:pathData="M37,60 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0"
-        android:fillColor="#4ADE80"/>
+        android:pathData="M56,31 L44,50 L52,50 L50,53 L56,48 Z"
+        android:fillColor="#FFFFFFFF"/>
+
+    <!-- 6. SmartESS Pulse Nodes (Grid, PV, Battery, Load Status Lights) -->
+    <!-- PV Solar Node -->
     <path
-        android:pathData="M67,42 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0"
+        android:pathData="M65,30 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"
+        android:fillColor="#FBBF24"/>
+    <!-- Load Node -->
+    <path
+        android:pathData="M43,66 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"
+        android:fillColor="#34D399"/>
+    <!-- Grid Node -->
+    <path
+        android:pathData="M77,48 m-2.5,0 a2.5,2.5 0 1,0 5,0 a2.5,2.5 0 1,0 -5,0"
         android:fillColor="#38BDF8"/>
-    <path
-        android:pathData="M54,72 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0"
-        android:fillColor="#F43F5E"/>
 </vector>

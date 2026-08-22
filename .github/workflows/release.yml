@@ -1,0 +1,54 @@
+name: Build and Create Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Android APK & GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Make Gradle Wrapper Executable
+        run: chmod +x gradlew
+
+      - name: Build Debug & Release APK
+        run: ./gradlew assembleDebug assembleRelease --no-daemon
+
+      - name: Prepare Release Artifacts
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk artifacts/DessMonitor-SmartESS-debug.apk || true
+          cp app/build/outputs/apk/release/app-release-unsigned.apk artifacts/DessMonitor-SmartESS-release.apk || cp app/build/outputs/apk/release/*.apk artifacts/DessMonitor-SmartESS-release.apk || true
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-apks
+          path: artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: artifacts/*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
