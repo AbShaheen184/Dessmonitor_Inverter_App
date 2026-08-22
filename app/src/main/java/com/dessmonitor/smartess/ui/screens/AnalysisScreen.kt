@@ -7,17 +7,22 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.ViewGroup
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
@@ -132,7 +137,7 @@ private class ModernAnalysisMarker(private val chart: LineChart) : IMarker {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AnalysisScreen(
     repository: DeviceRepository = koinInject<DeviceRepository>(),
@@ -348,7 +353,83 @@ fun AnalysisScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Active parameters legend badges (matching Trends screen style)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val activePaletteColors = repository.getActivePalette().map { Color(android.graphics.Color.parseColor(it)) }
+                    selectedSensors.forEachIndexed { index, sensor ->
+                        val sensorColor = when {
+                            sensor.contains("PV", true) -> activePaletteColors[0]
+                            sensor.contains("Output", true) || sensor.contains("Load", true) -> activePaletteColors[1]
+                            sensor.contains("Grid", true) -> activePaletteColors[2]
+                            sensor.contains("Discharge", true) || sensor.contains("Battery", true) -> activePaletteColors[3]
+                            else -> if (activePaletteColors.size > 4) activePaletteColors[4] else activePaletteColors[index % activePaletteColors.size]
+                        }
+
+                        val latestValue = remember(historyJson, sensor) {
+                            val dat = historyJson?.optJSONObject("dat")
+                            val items = dat?.optJSONArray("data") ?: dat?.optJSONArray("detail") ?: dat?.optJSONArray("list") ?: historyJson?.optJSONArray("dat")
+                            var last: Double? = null
+                            if (items != null) {
+                                for (i in 0 until items.length()) {
+                                    val obj = items.getJSONObject(i)
+                                    val t = obj.optString("title").uppercase()
+                                    val isMatch = when(sensor) {
+                                        "PV Power" -> t.contains("PV POWER") || t.contains("PV1 INPUT POWER") || t.contains("PV PRODUCTION")
+                                        "Output Power" -> t.contains("OUTPUT POWER") || t.contains("LOAD POWER") || t.contains("AC OUTPUT ACTIVE POWER")
+                                        "Discharge Current" -> t.contains("DISCHARGE CURRENT") || t.contains("DISCHARGING CURRENT")
+                                        else -> false
+                                    }
+                                    if (isMatch) {
+                                        val v = obj.optDouble("val")
+                                        if (!v.isNaN()) last = v
+                                    }
+                                }
+                            }
+                            last
+                        }
+
+                        Surface(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            shape = CircleShape,
+                            color = sensorColor.copy(alpha = 0.1f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, sensorColor)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(sensorColor)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (latestValue != null) "$sensor: $latestValue" else sensor,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Icon(
+                                    Icons.Default.Delete, 
+                                    null, 
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clickable { 
+                                            repository.setAnalysisSensors(selectedSensors - sensor) 
+                                        }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 val chartAxisColor = MaterialTheme.colorScheme.onSurface.toArgb()
                 val chartGridColor = MaterialTheme.colorScheme.outlineVariant.toArgb()
