@@ -27,7 +27,7 @@ class SmartEssApplication : Application() {
                             .build()
                     }
                     single { get<AppDatabase>().alarmDao() }
-                    single { DeviceRepository(get(), get()) }
+                    single { DeviceRepository(androidContext(), get()) }
                 }
             )
         }

@@ -478,11 +478,7 @@ fun AnalysisScreen(
                                         }
                                         
                                         axisRight.isEnabled = false
-                                        legend.isEnabled = true
-                                        legend.verticalAlignment = com.github.mikephil.charting.components.Legend.LegendVerticalAlignment.TOP
-                                        legend.horizontalAlignment = com.github.mikephil.charting.components.Legend.LegendHorizontalAlignment.RIGHT
-                                        legend.orientation = com.github.mikephil.charting.components.Legend.LegendOrientation.VERTICAL
-                                        legend.setDrawInside(true)
+                                        legend.isEnabled = false // Custom legend (cards) above
                                         setTouchEnabled(true)
                                         setScaleEnabled(true)
 

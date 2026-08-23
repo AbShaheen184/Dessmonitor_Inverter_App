@@ -488,26 +488,45 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                         json.optString("info")
                     ).firstOrNull { it.isNotBlank() } ?: "Alarm / Warning"
 
-                    val alarmTime = listOf(
-                        json.optString("gts"),
-                        json.optString("ts"),
-                        json.optString("time"),
-                        json.optString("occurTime"),
-                        json.optString("date")
-                    ).firstOrNull { it.isNotBlank() } ?: ""
+                    val apiId = json.optString("id")
+                    val rawTs = json.optString("ts").ifBlank { 
+                        json.optString("cts").ifBlank { 
+                            json.optString("occurTime").ifBlank { 
+                                json.optString("time").ifBlank { 
+                                    json.optString("date").ifBlank { 
+                                        json.optString("gts") 
+                                    } 
+                                } 
+                            } 
+                        } 
+                    }
+                    val rawGts = json.optString("gts")
+                    val rawCts = json.optString("cts")
+                    
+                    Log.d("DeviceRepository", "Alarm JSON: $json")
 
-                    entities.add(AlarmEntity(
-                        name = alarmTitle,
-                        time = alarmTime,
-                        status = json.optInt("status"),
-                        deviceSn = device.serialNumber,
-                        descx = json.optString("descx").ifBlank { json.optString("desc") },
-                        gts = json.optString("gts")
-                    ))
+                    if (rawTs.isNotBlank()) {
+                        entities.add(AlarmEntity(
+                            apiId = apiId.takeIf { it.isNotBlank() },
+                            name = alarmTitle,
+                            ts = rawTs,
+                            cts = rawCts.takeIf { it.isNotBlank() },
+                            gts = rawGts.takeIf { it.isNotBlank() },
+                            status = if (json.optBoolean("status", true)) 1 else 0,
+                            deviceSn = device.serialNumber,
+                            descx = json.optString("descx").ifBlank { json.optString("desc") }
+                        ))
+                    }
                 }
+                
                 if (entities.isNotEmpty()) {
-                    alarmDao.clearAlarms(device.serialNumber)
-                    alarmDao.insertAlarms(entities)
+                    // Filter duplicates within this server response batch
+                    val uniqueEntities = entities.distinctBy { 
+                        if (it.apiId != null) it.apiId else "${it.deviceSn}_${it.name}_${it.ts}" 
+                    }
+                    
+                    // Don't clear! Room REPLACE will update existing alarms and keep history.
+                    alarmDao.insertAlarms(uniqueEntities)
                 }
             }
             Result.success(resultList)

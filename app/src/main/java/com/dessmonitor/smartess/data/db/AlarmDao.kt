@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AlarmDao {
-    @Query("SELECT * FROM alarms WHERE deviceSn = :deviceSn ORDER BY time DESC")
+    @Query("SELECT * FROM alarms WHERE deviceSn = :deviceSn ORDER BY ts DESC")
     fun getAlarmsByDevice(deviceSn: String): Flow<List<AlarmEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

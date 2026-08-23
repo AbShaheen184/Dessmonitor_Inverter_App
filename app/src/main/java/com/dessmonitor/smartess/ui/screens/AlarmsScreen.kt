@@ -1,6 +1,7 @@
 package com.dessmonitor.smartess.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -77,9 +79,8 @@ fun AlarmsScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                items(dbAlarms) { alarm ->
+                items(dbAlarms, key = { it.id }) { alarm ->
                     val name = alarm.name.ifBlank { alarm.descx?.takeIf { it.isNotBlank() } ?: "Alarm Event" }
-                    val time = alarm.time
                     val status = if (alarm.status == 1) "Active" else "Cleared"
                     
                     Surface(
@@ -95,12 +96,31 @@ fun AlarmsScreen(
                                 Column {
                                     if (!alarm.descx.isNullOrEmpty() && alarm.descx != name) {
                                         Text(alarm.descx, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                    }
-                                    if (time.isNotEmpty()) {
-                                        Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                         Spacer(modifier = Modifier.height(4.dp))
                                     }
+                                    
+                                    if (alarm.ts.isNotBlank()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Event Time: ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, fontWeight = FontWeight.Bold)
+                                            Text(alarm.ts, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                        }
+                                    }
+
+                                    if (!alarm.cts.isNullOrBlank() && alarm.cts != alarm.ts) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Create Time: ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, fontWeight = FontWeight.Bold)
+                                            Text(alarm.cts, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                        }
+                                    }
+                                    
+                                    if (!alarm.gts.isNullOrBlank()) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Clear Time: ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, fontWeight = FontWeight.Bold)
+                                            Text(alarm.gts, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                        }
+                                    }
+                                    
+                                    Spacer(modifier = Modifier.height(6.dp))
                                     Surface(
                                         color = (if (status == "Active") MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer).copy(alpha = 0.6f),
                                         shape = MaterialTheme.shapes.extraSmall
