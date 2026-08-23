@@ -63,8 +63,21 @@ fun InverterHomeScreen(
     // Helper to find specific data point value
     fun getValue(vararg titles: String): String {
         for (title in titles) {
-            val dp = activeDevice?.dataPoints?.find { it.title.trim().equals(title, ignoreCase = true) || it.title.trim().contains(title, ignoreCase = true) }
-            if (dp != null) return "${dp.value} ${dp.unit ?: ""}"
+            val synonyms = when (title.lowercase().trim()) {
+                "battery charge current", "battery charging current" -> listOf("Battery Charge Current", "Battery Charging Current", "Charge Current", "Chg Current", "Bat Charge Current")
+                "battery discharge current", "battery discharging current" -> listOf("Battery Discharge Current", "Battery Discharging Current", "Discharge Current", "Dischg Current", "Bat Discharge Current")
+                "output power", "load power" -> listOf("Output Power", "Load Power", "AC Output Power", "AC Output Active Power", "Out Power")
+                "load percentage", "load percent", "load ratio" -> listOf("Load Percentage", "Load Percent", "Load %", "Load Ratio", "Output Load Percent")
+                "pv power", "pv active power", "solar power" -> listOf("PV Power", "PV Active power", "PV1 Input Power", "Solar Power", "PV Production")
+                "grid voltage", "ac voltage" -> listOf("Grid Voltage", "AC Voltage", "Grid Volt", "Line Voltage", "AC Output Rating Voltage")
+                else -> listOf(title)
+            }
+            for (syn in synonyms) {
+                val dp = activeDevice?.dataPoints?.find {
+                    it.title.trim().equals(syn, ignoreCase = true) || it.title.trim().contains(syn, ignoreCase = true)
+                }
+                if (dp != null) return "${dp.value} ${dp.unit ?: ""}"
+            }
         }
         return "0"
     }
@@ -344,7 +357,16 @@ fun InverterHomeScreen(
         }
 
         if (showStatsDialog && activeDevice != null) {
-            val allAvailableTitles = activeDevice.dataPoints.map { it.title }.distinct().sorted()
+            val defaultTitles = listOf(
+                "Battery Charge Current",
+                "Battery Discharge Current",
+                "Output Power",
+                "Load Percentage",
+                "PV Power",
+                "Grid Voltage"
+            )
+            val deviceTitles = activeDevice.dataPoints.map { it.title }.distinct()
+            val allAvailableTitles = (defaultTitles + deviceTitles).distinct().sorted()
             
             AlertDialog(
                 onDismissRequest = { showStatsDialog = false },

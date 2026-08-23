@@ -171,7 +171,7 @@ fun AnalysisScreen(
         val sensors = mutableSetOf<String>()
         val dat = historyJson?.optJSONObject("dat")
         val items = dat?.optJSONArray("data") ?: dat?.optJSONArray("detail") ?: dat?.optJSONArray("list") ?: historyJson?.optJSONArray("dat")
-        
+
         if (items != null) {
             for (i in 0 until items.length()) {
                 val t = items.getJSONObject(i).optString("title")
@@ -232,7 +232,7 @@ fun AnalysisScreen(
             for (i in 0 until items.length()) {
                 val obj = items.getJSONObject(i)
                 val t = obj.optString("title").uppercase()
-                
+
                 val isMatch = when(sensor) {
                     "PV Power" -> t.contains("PV POWER") || t.contains("PV1 INPUT POWER") || t.contains("PV PRODUCTION")
                     "Output Power" -> t.contains("OUTPUT POWER") || t.contains("LOAD POWER") || t.contains("AC OUTPUT ACTIVE POWER")
@@ -485,13 +485,13 @@ fun AnalysisScreen(
                                         legend.setDrawInside(true)
                                         setTouchEnabled(true)
                                         setScaleEnabled(true)
-                                        
+
                                         marker = ModernAnalysisMarker(this)
                                     }
                                 },
                                 update = { chart ->
                                     chart.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                    
+
                                     // Update formatter with correct reference point
                                     chart.xAxis.valueFormatter = object : ValueFormatter() {
                                         override fun getFormattedValue(value: Float): String {
@@ -516,7 +516,7 @@ fun AnalysisScreen(
                         }
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     "Showing data for the last 24 hours (Syncing...)",

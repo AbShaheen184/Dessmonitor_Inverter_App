@@ -60,7 +60,14 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     private val _selectedDate = MutableLiveData<java.time.LocalDate>(java.time.LocalDate.now())
     val selectedDate: LiveData<java.time.LocalDate> = _selectedDate
 
-    private val _selectedStats = MutableLiveData<List<String>>(listOf("Daily Yield", "Total Yield", "Grid Voltage"))
+    private val _selectedStats = MutableLiveData<List<String>>(listOf(
+        "Battery Charge Current",
+        "Battery Discharge Current",
+        "Output Power",
+        "Load Percentage",
+        "PV Power",
+        "Grid Voltage"
+    ))
     val selectedStats: LiveData<List<String>> = _selectedStats
 
     // Persistent Chart Settings
@@ -417,14 +424,14 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 }
             } else {
                 val data = dat.optJSONArray("data") ?: dat.optJSONArray("list") ?: dat.optJSONArray("detail") ?: json.optJSONArray("dat")
-                if (data != null) { 
+                if (data != null) {
                     for (i in 0 until data.length()) {
                         val item = data.getJSONObject(i)
                         val rawTitle = item.optString("title")
                         if (rawTitle.isNotEmpty()) {
                             item.put("title", mapSensorTitle(device.devcode, rawTitle))
                         }
-                        combinedArray.put(item) 
+                        combinedArray.put(item)
                     }
                 }
             }
@@ -439,29 +446,29 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
             // First return cached alarms from DB if available
             // Note: Returning Result.success(cached) immediately might prevent network sync if not careful.
             // But the UI usually calls this once on launch.
-            
+
             val pn = device.pn ?: return@withContext Result.failure(Exception("Missing PN"))
             val devcode = device.devcode ?: return@withContext Result.failure(Exception("Missing devcode"))
             val end = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
             val start = java.time.LocalDate.now().minusDays(90).format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
-            
-            val response = try { 
-                api.queryDeviceAlarms(pn, devcode, device.devaddr ?: 1, device.serialNumber, startDate = start, endDate = end) 
-            } catch (_: Exception) { 
-                api.queryDeviceAlarms(pn, devcode, device.devaddr ?: 1, device.serialNumber) 
+
+            val response = try {
+                api.queryDeviceAlarms(pn, devcode, device.devaddr ?: 1, device.serialNumber, startDate = start, endDate = end)
+            } catch (_: Exception) {
+                api.queryDeviceAlarms(pn, devcode, device.devaddr ?: 1, device.serialNumber)
             }
 
             val dat = response.optJSONObject("dat")
-            val list = dat?.optJSONArray("list") ?: 
-                       dat?.optJSONArray("data") ?: 
-                       dat?.optJSONArray("warning") ?: 
-                       dat?.optJSONArray("detail") ?: 
+            val list = dat?.optJSONArray("list") ?:
+                       dat?.optJSONArray("data") ?:
+                       dat?.optJSONArray("warning") ?:
+                       dat?.optJSONArray("detail") ?:
                        response.optJSONArray("dat")
-            
+
             val resultList = mutableListOf<JSONObject>()
             val entities = mutableListOf<AlarmEntity>()
 
-            if (list != null) { 
+            if (list != null) {
                 for (i in 0 until list.length()) {
                     val json = list.getJSONObject(i)
                     resultList.add(json)
