@@ -10,6 +10,9 @@ import com.dessmonitor.smartess.data.db.AlarmDao
 import com.dessmonitor.smartess.data.db.AlarmEntity
 import com.dessmonitor.smartess.data.models.DataPoint
 import com.dessmonitor.smartess.data.models.DeviceInfo
+import com.dessmonitor.smartess.data.models.AutomationRule
+import com.dessmonitor.smartess.data.models.ComparisonOperator
+import com.dessmonitor.smartess.data.models.RightOperandType
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
@@ -92,6 +95,13 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     fun setAutomationRules(rules: List<com.dessmonitor.smartess.data.models.AutomationRule>) {
         _automationRules.value = rules
         prefs.edit().putString("automation_rules", gson.toJson(rules)).apply()
+        
+        // Start/Stop background service based on whether any rules are enabled
+        if (rules.any { it.isEnabled }) {
+            com.dessmonitor.smartess.services.DataUpdateService.start(context)
+        } else {
+            com.dessmonitor.smartess.services.DataUpdateService.stop(context)
+        }
     }
     
     // Categories synced in this session
@@ -256,6 +266,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         _devices.postValue(emptyList())
         _isLoggedIn.postValue(false)
         historyCache.clear()
+        com.dessmonitor.smartess.services.DataUpdateService.stop(context)
     }
 
     fun mapSensorTitle(devcode: Int?, originalTitle: String): String {
@@ -545,5 +556,84 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
     suspend fun setControlValue(device: DeviceInfo, fieldId: String, value: String): Result<Boolean> = withContext(Dispatchers.IO) {
         try { api.setDeviceControlValue(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber, fieldId, value); Result.success(true) } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun evaluateAutomations(context: Context) = withContext(Dispatchers.IO) {
+        val currentRules = automationRules.value ?: return@withContext
+        if (currentRules.none { it.isEnabled }) return@withContext
+
+        // Fetch fresh data
+        val devicesResult = loadDevices()
+        val activeDevice = devicesResult.getOrNull()?.firstOrNull() ?: return@withContext
+        
+        val updatedRules = currentRules.toMutableList()
+        var rulesChanged = false
+        
+        for (i in updatedRules.indices) {
+            val rule = updatedRules[i]
+            if (!rule.isEnabled || rule.isTriggered) continue
+            
+            // Helper to get numeric telemetry value
+            fun getVal(title: String): Double? {
+                val dp = activeDevice.dataPoints.find { 
+                    it.title.trim().equals(title, ignoreCase = true) || it.title.trim().contains(title, ignoreCase = true) 
+                }
+                return dp?.value?.toString()?.toDoubleOrNull()
+            }
+
+            val leftVal = getVal(rule.leftParameter) ?: continue
+            val rightVal = if (rule.rightOperandType == RightOperandType.CUSTOM_VALUE) {
+                rule.rightCustomValue
+            } else {
+                rule.rightParameter?.let { getVal(it) } ?: continue
+            }
+
+            val conditionMet = when (rule.operator) {
+                ComparisonOperator.EQUAL -> Math.abs(leftVal - rightVal) < 0.001
+                ComparisonOperator.LESS_THAN_OR_EQUAL -> leftVal <= rightVal
+                ComparisonOperator.GREATER_THAN_OR_EQUAL -> leftVal >= rightVal
+                ComparisonOperator.LESS_THAN -> leftVal < rightVal
+                ComparisonOperator.GREATER_THAN -> leftVal > rightVal
+            }
+
+            if (conditionMet) {
+                val actionsTriggered = mutableListOf<String>()
+
+                // Action 1: Inverter Setting Change
+                if (rule.enableInverterSettingAction && rule.targetSettingId != null && rule.targetSettingValue != null) {
+                    val result = setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
+                    if (result.isSuccess) {
+                        actionsTriggered.add("Setting: ${rule.targetSettingName} → ${rule.targetSettingValueDisplay}")
+                    }
+                }
+
+                // Action 2: Mobile Notification
+                if (rule.enableNotificationAction) {
+                    var formattedMessage = rule.notificationMessageTemplate ?: "Condition met for ${rule.name}"
+                    activeDevice.dataPoints.forEach { dp ->
+                        formattedMessage = formattedMessage.replace("{${dp.title}}", "${dp.value} ${dp.unit ?: ""}".trim(), ignoreCase = true)
+                    }
+                    actionsTriggered.add("Mobile Notification")
+                    com.dessmonitor.smartess.utils.NotificationUtils.sendNotification(
+                        context = context,
+                        title = rule.notificationTitle ?: rule.name,
+                        message = formattedMessage
+                    )
+                }
+                
+                if (actionsTriggered.isNotEmpty()) {
+                    Log.d("DeviceRepository", "Automation triggered: ${rule.name}. Actions: ${actionsTriggered.joinToString(", ")}")
+                    // Mark as triggered and update the list
+                    updatedRules[i] = rule.copy(isTriggered = true, lastTriggeredAt = System.currentTimeMillis())
+                    rulesChanged = true
+                }
+            }
+        }
+        
+        if (rulesChanged) {
+            withContext(Dispatchers.Main) {
+                setAutomationRules(updatedRules)
+            }
+        }
     }
 }

@@ -33,5 +33,10 @@ class SmartEssApplication : Application() {
         }
         
         deviceRepository = getKoin().get()
+        
+        // Start background automation service if any rules are enabled
+        if (deviceRepository.automationRules.value?.any { it.isEnabled } == true) {
+            com.dessmonitor.smartess.services.DataUpdateService.start(this)
+        }
     }
 }

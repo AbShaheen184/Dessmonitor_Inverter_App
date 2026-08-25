@@ -43,5 +43,10 @@ data class AutomationRule(
     
     // Mobile Notification Action
     val notificationTitle: String? = "Automation Alert",
-    val notificationMessageTemplate: String? = "The battery is {SOC} and voltage is {Battery Voltage}"
+    val notificationMessageTemplate: String? = "The battery is {SOC} and voltage is {Battery Voltage}",
+
+    // One-shot execution state (not persisted if you want it to reset on app restart, 
+    // or we can persist it. Usually better to persist to avoid spamming on app restart)
+    val lastTriggeredAt: Long = 0,
+    val isTriggered: Boolean = false
 )

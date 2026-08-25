@@ -81,58 +81,7 @@ fun AutomationsDialog(
         if (activeDevice == null || rules.isEmpty()) return
         scope.launch {
             statusMessage = "Evaluating automation rules..."
-            for (rule in rules) {
-                if (!rule.isEnabled) continue
-                
-                // Helper to get numeric telemetry value
-                fun getVal(title: String): Double? {
-                    val dp = activeDevice.dataPoints.find { 
-                        it.title.trim().equals(title, ignoreCase = true) || it.title.trim().contains(title, ignoreCase = true) 
-                    }
-                    return dp?.value?.toString()?.toDoubleOrNull()
-                }
-
-                val leftVal = getVal(rule.leftParameter) ?: continue
-                val rightVal = if (rule.rightOperandType == RightOperandType.CUSTOM_VALUE) {
-                    rule.rightCustomValue
-                } else {
-                    rule.rightParameter?.let { getVal(it) } ?: continue
-                }
-
-                val conditionMet = when (rule.operator) {
-                    ComparisonOperator.EQUAL -> Math.abs(leftVal - rightVal) < 0.001
-                    ComparisonOperator.LESS_THAN_OR_EQUAL -> leftVal <= rightVal
-                    ComparisonOperator.GREATER_THAN_OR_EQUAL -> leftVal >= rightVal
-                    ComparisonOperator.LESS_THAN -> leftVal < rightVal
-                    ComparisonOperator.GREATER_THAN -> leftVal > rightVal
-                }
-
-                if (conditionMet) {
-                    val actionsTriggered = mutableListOf<String>()
-
-                    // Action 1: Inverter Setting Change (if enabled)
-                    if (rule.enableInverterSettingAction && rule.targetSettingId != null && rule.targetSettingValue != null) {
-                        actionsTriggered.add("Setting: ${rule.targetSettingName} → ${rule.targetSettingValueDisplay}")
-                        repository.setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
-                    }
-
-                    // Action 2: Mobile Notification (if enabled)
-                    if (rule.enableNotificationAction) {
-                        var formattedMessage = rule.notificationMessageTemplate ?: "Condition met for ${rule.name}"
-                        activeDevice.dataPoints.forEach { dp ->
-                            formattedMessage = formattedMessage.replace("{${dp.title}}", "${dp.value} ${dp.unit ?: ""}".trim(), ignoreCase = true)
-                        }
-                        actionsTriggered.add("Mobile Notification")
-                        com.dessmonitor.smartess.utils.NotificationUtils.sendNotification(
-                            context = context,
-                            title = rule.notificationTitle ?: rule.name,
-                            message = formattedMessage
-                        )
-                    }
-
-                    statusMessage = "Condition met for '${rule.name}'. Triggered: ${actionsTriggered.joinToString(", ")}"
-                }
-            }
+            repository.evaluateAutomations(context)
             statusMessage = "Automation evaluation complete."
         }
     }
@@ -282,11 +231,22 @@ fun AutomationsDialog(
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.secondary
                                             )
+                                            if (rule.isTriggered) {
+                                                Text(
+                                                    "Triggered (Ready to reset)",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                         Switch(
                                             checked = rule.isEnabled,
                                             onCheckedChange = { isChecked ->
-                                                val updated = rules.map { if (it.id == rule.id) it.copy(isEnabled = isChecked) else it }
+                                                val updated = rules.map { 
+                                                    if (it.id == rule.id) it.copy(isEnabled = isChecked, isTriggered = false) 
+                                                    else it 
+                                                }
                                                 repository.setAutomationRules(updated)
                                             }
                                         )
