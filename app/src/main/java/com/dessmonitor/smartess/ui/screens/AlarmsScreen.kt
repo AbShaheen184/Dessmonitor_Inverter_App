@@ -1,5 +1,7 @@
 package com.dessmonitor.smartess.ui.screens
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -9,17 +11,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,12 +36,24 @@ fun AlarmsScreen(
 ) {
     val devices by repository.devices.observeAsState(emptyList())
     val activeDevice = devices.firstOrNull()
+    val scope = rememberCoroutineScope()
     
     // DB backed alarms
     val dbAlarms by (if (activeDevice != null) repository.getAlarmsFlow(activeDevice.serialNumber) else kotlinx.coroutines.flow.flowOf(emptyList())).collectAsState(initial = emptyList())
     
     var isLoading by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val pullToRefreshState = rememberPullToRefreshState()
+    val pullOffset by animateDpAsState(
+        targetValue = when {
+            isRefreshing -> 80.dp
+            pullToRefreshState.distanceFraction > 0f -> (80.dp * pullToRefreshState.distanceFraction).coerceAtMost(120.dp)
+            else -> 0.dp
+        },
+        label = "PullOffset"
+    )
 
     LaunchedEffect(activeDevice) {
         if (activeDevice != null) {
@@ -61,24 +79,75 @@ fun AlarmsScreen(
             )
         }
     ) { padding ->
-        if (isLoading && dbAlarms.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .pullToRefresh(
+                    state = pullToRefreshState,
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        if (activeDevice != null) {
+                            scope.launch {
+                                isRefreshing = true
+                                errorMessage = null
+                                repository.getAlarms(activeDevice).onFailure { errorMessage = it.message }
+                                isRefreshing = false
+                            }
+                        }
+                    }
+                )
+        ) {
+            // Pull to Refresh UI (Behind content, visible when pushed down)
+            if (pullToRefreshState.distanceFraction > 0f || isRefreshing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(pullOffset)
+                        .padding(top = 16.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                    } else {
+                        val rotation by animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                Icons.Default.ArrowDownward,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .rotate(rotation),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = if (pullToRefreshState.distanceFraction >= 1f) "Release to refresh" else "Pull down to refresh",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
             }
-        } else if (errorMessage != null && dbAlarms.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = "Error: $errorMessage", color = MaterialTheme.colorScheme.error)
-            }
-        } else if (dbAlarms.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No alarms recorded")
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
+
+            if (isLoading && dbAlarms.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize().offset(y = pullOffset), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (errorMessage != null && dbAlarms.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize().offset(y = pullOffset), contentAlignment = Alignment.Center) {
+                    Text(text = "Error: $errorMessage", color = MaterialTheme.colorScheme.error)
+                }
+            } else if (dbAlarms.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize().offset(y = pullOffset), contentAlignment = Alignment.Center) {
+                    Text("No alarms recorded")
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .offset(y = pullOffset)
+                ) {
                 items(dbAlarms, key = { it.id }) { alarm ->
                     val name = alarm.name.ifBlank { alarm.descx?.takeIf { it.isNotBlank() } ?: "Alarm Event" }
                     val status = if (alarm.status == 1) "Active" else "Cleared"
@@ -155,6 +224,7 @@ fun AlarmsScreen(
                     }
                 }
                 item { Spacer(modifier = Modifier.height(110.dp)) }
+            }
             }
         }
     }
