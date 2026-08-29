@@ -325,13 +325,44 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                         val devaddr = devJson.optInt("devaddr", 0)
                         val lastData = async { try { api.queryDeviceLastData(pn, devcode, devaddr, sn) } catch (_: Exception) { emptyList<DataPoint>() } }.await()
                         val params = async { try { api.queryDeviceParameters(pn, devcode, devaddr, sn) } catch (_: Exception) { emptyList<DataPoint>() } }.await()
-                        val summary = async { try { api.webQueryDeviceEs(pid) } catch (_: Exception) { emptyList<DataPoint>() } }.await()
-                        val mergedData = (lastData + params + summary)
+                        val summaryJson = async { try { api.webQueryDeviceEs(pid) } catch (_: Exception) { emptyList<JSONObject>() } }.await()
+                        val deviceSummary = summaryJson.find { it.optString("sn") == sn }
+                        
+                        val summaryDataPoints = mutableListOf<DataPoint>()
+                        if (deviceSummary != null) {
+                            if (deviceSummary.has("outpower")) summaryDataPoints.add(DataPoint("Output Power", deviceSummary.opt("outpower") ?: 0, "kW"))
+                            if (deviceSummary.has("energyToday")) summaryDataPoints.add(DataPoint("Daily Yield", deviceSummary.opt("energyToday") ?: 0, "kWh"))
+                            if (deviceSummary.has("energyTotal")) summaryDataPoints.add(DataPoint("Total Yield", deviceSummary.opt("energyTotal") ?: 0, "kWh"))
+                        }
+
+                        val mergedData = (lastData + params + summaryDataPoints)
                             .filter { it.title.isNotEmpty() }
                             .distinctBy { it.title }
                             .map { it.copy(value = transformValue(devcode, it.title, it.value), title = mapSensorTitle(devcode, it.title)) }
                         
-                        val device = DeviceInfo(serialNumber = sn, alias = devJson.optString("alias"), pn = pn, pid = pid, devcode = if (devcode != 0) devcode else null, devaddr = devaddr, dataPoints = mergedData)
+                        // Use status from summary if available, otherwise collector status, otherwise true
+                        val isOnline = deviceSummary?.optInt("status", 1) == 1 && deviceSummary?.optInt("wifiStatus", 1) == 1
+                        
+                        // Extract last data timestamp from telemetry
+                        val timestampStr = mergedData.find { it.title.equals("Timestamp", ignoreCase = true) || it.title.equals("Date Time", ignoreCase = true) }?.value?.toString()
+                        val lastDataTime = try {
+                            if (timestampStr != null) {
+                                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                                sdf.parse(timestampStr)?.time
+                            } else null
+                        } catch (_: Exception) { null }
+
+                        val device = DeviceInfo(
+                            serialNumber = sn, 
+                            alias = devJson.optString("alias"), 
+                            pn = pn, 
+                            pid = pid, 
+                            devcode = if (devcode != 0) devcode else null, 
+                            devaddr = devaddr, 
+                            dataPoints = mergedData,
+                            isOnline = isOnline,
+                            lastDataTime = lastDataTime
+                        )
                         allDevices.add(device)
                         
                         // Automatically update alarms for this device

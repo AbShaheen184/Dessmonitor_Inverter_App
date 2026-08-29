@@ -232,21 +232,14 @@ class DessMonitorAPI(
         list
     }
 
-    suspend fun webQueryDeviceEs(pid: Long): List<DataPoint> = withContext(Dispatchers.IO) {
+    suspend fun webQueryDeviceEs(pid: Long): List<JSONObject> = withContext(Dispatchers.IO) {
         val response = makeRequest("webQueryDeviceEs", mapOf("pid" to pid, "pagesize" to 50))
         val dat = response.optJSONObject("dat")
         val devices = dat?.optJSONArray("device")
-        val list = mutableListOf<DataPoint>()
-        if (devices != null && devices.length() > 0) {
-            val device = devices.getJSONObject(0) // Usually one main device per project for summary
-            if (device.has("outpower")) {
-                list.add(DataPoint("outpower", device.opt("outpower") ?: 0, "kW"))
-            }
-            if (device.has("energyToday")) {
-                list.add(DataPoint("energyToday", device.opt("energyToday") ?: 0, "kWh"))
-            }
-            if (device.has("energyTotal")) {
-                list.add(DataPoint("energyTotal", device.opt("energyTotal") ?: 0, "kWh"))
+        val list = mutableListOf<JSONObject>()
+        if (devices != null) {
+            for (i in 0 until devices.length()) {
+                list.add(devices.getJSONObject(i))
             }
         }
         list

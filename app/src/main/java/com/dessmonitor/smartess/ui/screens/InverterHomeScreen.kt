@@ -108,6 +108,22 @@ fun InverterHomeScreen(
     )
 
     // Refresh logic moved to pullToRefresh modifier below
+    var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30000) // Update every 30 seconds
+            currentTime = System.currentTimeMillis()
+        }
+    }
+    
+    val isStale = remember(activeDevice, lastUpdate, currentTime) {
+        val deviceTime = activeDevice?.lastDataTime ?: 0L
+        if (deviceTime > 0) {
+            (currentTime - deviceTime) > 10 * 60 * 1000 // 10 minutes stale based on inverter's clock
+        } else {
+            lastUpdate > 0 && (currentTime - lastUpdate) > 10 * 60 * 1000 // Fallback to last fetch time
+        }
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -115,16 +131,28 @@ fun InverterHomeScreen(
             TopAppBar(
                 title = { 
                     Column {
-                        Text(
-                            text = activeDevice?.getDisplayName() ?: "DessMonitor",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.ExtraBold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = activeDevice?.getDisplayName() ?: "DessMonitor",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            if (activeDevice != null) {
+                                Spacer(Modifier.width(8.dp))
+                                val online = activeDevice.isOnline && !isStale
+                                Surface(
+                                    color = if (online) Color(0xFF4CAF50) else Color(0xFFF44336),
+                                    shape = CircleShape,
+                                    modifier = Modifier.size(10.dp)
+                                ) {}
+                            }
+                        }
                         if (activeDevice != null) {
                             Text(
-                                text = "SN: ${activeDevice.serialNumber}",
+                                text = "SN: ${activeDevice.serialNumber} • ${if (activeDevice.isOnline && !isStale) "Online" else if (isStale) "Stale Data" else "Offline"}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (activeDevice.isOnline && !isStale) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                fontWeight = if (activeDevice.isOnline && !isStale) FontWeight.Normal else FontWeight.Bold
                             )
                         }
                     }
@@ -249,6 +277,51 @@ fun InverterHomeScreen(
                     repository.loadDevices().onFailure { syncError = it.message }
                 }
             } else {
+                // Connectivity Status Banner
+                if (!activeDevice.isOnline || isStale) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        tonalElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isStale) Icons.Default.Warning else Icons.Default.CloudOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = if (isStale) "Data Sync Delayed" else "Inverter Offline",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                                val fullFormatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                                val displayTime = activeDevice.lastDataTime ?: lastUpdate
+                                Text(
+                                    text = "Last update: ${if (displayTime > 0) fullFormatter.format(java.util.Date(displayTime)) else "Never"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                if (isStale) {
+                                    Text(
+                                        text = "Inverter might be disconnected from Wi-Fi.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Energy Flow Dashboard
                 val pvPower = getNumeric("PV Power", "PV1 Input Power", "Solar Power")
                 val loadPower = getNumeric("Output Power", "Load Power", "AC output active power")

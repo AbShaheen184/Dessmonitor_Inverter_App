@@ -7,6 +7,8 @@ data class DeviceInfo(
     val pid: Long? = null,
     val devcode: Int? = null,
     val devaddr: Int? = null,
+    val isOnline: Boolean = true,
+    val lastDataTime: Long? = null,
     val deviceMeta: Map<String, Any>? = null,
     val collectorMeta: Map<String, Any>? = null,
     val dataPoints: List<DataPoint> = emptyList()
