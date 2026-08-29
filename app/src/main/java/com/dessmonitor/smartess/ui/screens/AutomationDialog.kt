@@ -233,10 +233,21 @@ fun AutomationsDialog(
                                             )
                                             if (rule.isTriggered) {
                                                 Text(
-                                                    "Triggered (Ready to reset)",
+                                                    "Status: Triggered (Action Executed)",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.error,
                                                     fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    "Will re-arm once condition is no longer met",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            } else {
+                                                Text(
+                                                    "Status: Monitoring...",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (rule.isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                                                 )
                                             }
                                         }

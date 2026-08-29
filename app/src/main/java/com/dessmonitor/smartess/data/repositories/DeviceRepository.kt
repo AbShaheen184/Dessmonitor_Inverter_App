@@ -571,7 +571,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         
         for (i in updatedRules.indices) {
             val rule = updatedRules[i]
-            if (!rule.isEnabled || rule.isTriggered) continue
+            if (!rule.isEnabled) continue
             
             // Helper to get numeric telemetry value
             fun getVal(title: String): Double? {
@@ -597,6 +597,9 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
             }
 
             if (conditionMet) {
+                // If condition is met but it was already triggered, skip triggering again
+                if (rule.isTriggered) continue
+
                 val actionsTriggered = mutableListOf<String>()
 
                 // Action 1: Inverter Setting Change
@@ -623,8 +626,15 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 
                 if (actionsTriggered.isNotEmpty()) {
                     Log.d("DeviceRepository", "Automation triggered: ${rule.name}. Actions: ${actionsTriggered.joinToString(", ")}")
-                    // Mark as triggered and update the list
+                    // Mark as triggered so it doesn't fire again until condition is reset
                     updatedRules[i] = rule.copy(isTriggered = true, lastTriggeredAt = System.currentTimeMillis())
+                    rulesChanged = true
+                }
+            } else {
+                // Condition is NOT met. If it was previously triggered, reset it so it can trigger again next time
+                if (rule.isTriggered) {
+                    Log.d("DeviceRepository", "Automation reset: ${rule.name}. Condition no longer met.")
+                    updatedRules[i] = rule.copy(isTriggered = false)
                     rulesChanged = true
                 }
             }
