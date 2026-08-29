@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
@@ -111,7 +112,7 @@ fun InverterHomeScreen(
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(30000) // Update every 30 seconds
+            kotlinx.coroutines.delay(30 * 1000L) // Update every 30 seconds
             currentTime = System.currentTimeMillis()
         }
     }
@@ -329,8 +330,10 @@ fun InverterHomeScreen(
                 val batteryCharge = getNumeric("Battery Charge Current", "Battery Charging Current")
                 val batteryDischarge = getNumeric("Battery Discharge Current", "Battery Discharging Current")
                 val workMode = getValue("Operating mode", "work state", "Inverter Mode")
+                val isSystemActive = activeDevice.isOnline && !isStale
 
                 EnergyFlowSection(
+                    isSystemActive = isSystemActive,
                     pvPowerValue = pvPower,
                     gridPowerValue = if (workMode.contains("Line", true)) loadPower else 0.0,
                     batteryChargeValue = batteryCharge,
@@ -392,7 +395,8 @@ fun InverterHomeScreen(
                                     else -> Icons.Default.Info
                                 },
                                 label = statTitle,
-                                value = getValue(statTitle)
+                                value = getValue(statTitle),
+                                enabled = isSystemActive
                             )
                         }
                         if (chunk.size == 1) {
@@ -527,6 +531,7 @@ fun InverterHomeScreen(
 
 @Composable
 fun EnergyFlowSection(
+    isSystemActive: Boolean,
     pvPowerValue: Double,
     gridPowerValue: Double,
     batteryChargeValue: Double,
@@ -548,15 +553,24 @@ fun EnergyFlowSection(
         contentAlignment = Alignment.Center
     ) {
         val infiniteTransition = rememberInfiniteTransition(label = "EnergyFlow")
-        val phase by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 100f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "FlowPhase"
-        )
+        val phase by if (isSystemActive) {
+            infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 100f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(2000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "FlowPhase"
+            )
+        } else {
+            remember { mutableStateOf(0f) }
+        }
+
+        val pvColor = if (isSystemActive) Color(0xFFFFB100) else Color.Gray
+        val gridColor = if (isSystemActive) Color(0xFF2196F3) else Color.Gray
+        val loadColor = if (isSystemActive) Color(0xFF4CAF50) else Color.Gray
+        val batteryColor = if (isSystemActive) Color(0xFFF44336) else Color.Gray
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2, size.height / 2)
@@ -570,7 +584,7 @@ fun EnergyFlowSection(
 
             fun drawFlowLine(start: Offset, end: Offset, color: Color, isActive: Boolean, reverse: Boolean = false) {
                 drawLine(baseLineColor, start, end, strokeWidth)
-                if (isActive) {
+                if (isActive && isSystemActive) {
                     val path = Path().apply {
                         moveTo(start.x, start.y)
                         lineTo(end.x, end.y)
@@ -584,24 +598,24 @@ fun EnergyFlowSection(
                 }
             }
 
-            drawFlowLine(center + Offset(0f, -nodeDist + nodeRadius), center + Offset(0f, -centerRadius), Color(0xFFFFB100), pvPowerValue > 10)
-            drawFlowLine(center + Offset(-nodeDist + nodeRadius, 0f), center + Offset(-centerRadius, 0f), Color(0xFF2196F3), gridPowerValue > 10)
-            drawFlowLine(center + Offset(centerRadius, 0f), center + Offset(nodeDist - nodeRadius, 0f), Color(0xFF4CAF50), loadPowerValue > 10)
+            drawFlowLine(center + Offset(0f, -nodeDist + nodeRadius), center + Offset(0f, -centerRadius), pvColor, pvPowerValue > 10)
+            drawFlowLine(center + Offset(-nodeDist + nodeRadius, 0f), center + Offset(-centerRadius, 0f), gridColor, gridPowerValue > 10)
+            drawFlowLine(center + Offset(centerRadius, 0f), center + Offset(nodeDist - nodeRadius, 0f), loadColor, loadPowerValue > 10)
 
             val battStart = center + Offset(0f, centerRadius)
             val battEnd = center + Offset(0f, nodeDist - nodeRadius)
-            if (batteryDischargeValue > 0.1) drawFlowLine(battEnd, battStart, Color(0xFFF44336), true)
-            else if (batteryChargeValue > 0.1) drawFlowLine(battStart, battEnd, Color(0xFFF44336), true)
+            if (batteryDischargeValue > 0.1 && isSystemActive) drawFlowLine(battEnd, battStart, batteryColor, true)
+            else if (batteryChargeValue > 0.1 && isSystemActive) drawFlowLine(battStart, battEnd, batteryColor, true)
             else drawLine(baseLineColor, battStart, battEnd, strokeWidth)
         }
 
         val nodeDist = 130.dp
-        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(y = -nodeDist).clickable { onNodeClick("PV Power") }, icon = Icons.Default.WbSunny, label = "PV", value = pvPower, color = Color(0xFFFFB100), isFlowing = pvPowerValue > 10, labelPosition = LabelPosition.TOP)
-        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(x = -nodeDist).clickable { onNodeClick("Grid Power") }, icon = Icons.Default.ElectricBolt, label = "Grid", value = gridPower, color = Color(0xFF2196F3), isFlowing = gridPowerValue > 10, labelPosition = LabelPosition.BOTTOM)
-        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(x = nodeDist).clickable { onNodeClick("Output Power") }, icon = Icons.Default.Home, label = "Load", value = loadPower, color = Color(0xFF4CAF50), isFlowing = loadPowerValue > 10, labelPosition = LabelPosition.BOTTOM)
-        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(y = nodeDist).clickable { onNodeClick("SOC") }, icon = Icons.Default.BatteryStd, label = "Battery", value = "$batterySoc / $batteryVoltage", color = Color(0xFFF44336), isFlowing = batteryChargeValue > 0.1 || batteryDischargeValue > 0.1, labelPosition = LabelPosition.BOTTOM)
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(y = -nodeDist).clickable { onNodeClick("PV Power") }, icon = Icons.Default.WbSunny, label = "PV", value = pvPower, color = pvColor, isFlowing = isSystemActive && pvPowerValue > 10, isSystemActive = isSystemActive, labelPosition = LabelPosition.TOP)
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(x = -nodeDist).clickable { onNodeClick("Grid Power") }, icon = Icons.Default.ElectricBolt, label = "Grid", value = gridPower, color = gridColor, isFlowing = isSystemActive && gridPowerValue > 10, isSystemActive = isSystemActive, labelPosition = LabelPosition.BOTTOM)
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(x = nodeDist).clickable { onNodeClick("Output Power") }, icon = Icons.Default.Home, label = "Load", value = loadPower, color = loadColor, isFlowing = isSystemActive && loadPowerValue > 10, isSystemActive = isSystemActive, labelPosition = LabelPosition.BOTTOM)
+        EnergyNode(modifier = Modifier.align(Alignment.Center).offset(y = nodeDist).clickable { onNodeClick("SOC") }, icon = Icons.Default.BatteryStd, label = "Battery", value = "$batterySoc / $batteryVoltage", color = batteryColor, isFlowing = isSystemActive && (batteryChargeValue > 0.1 || batteryDischargeValue > 0.1), isSystemActive = isSystemActive, labelPosition = LabelPosition.BOTTOM)
 
-        val displayMode = when {
+        val displayMode = if (!isSystemActive) "OFFLINE" else when {
             workMode.contains("Battery", true) -> "Battery Mode"
             workMode.contains("Line", true) || workMode.contains("Grid", true) -> "Line Mode"
             workMode.contains("PV", true) || pvPowerValue > 100 -> "PV Mode"
@@ -613,10 +627,14 @@ fun EnergyFlowSection(
             modifier = Modifier.size(130.dp),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-            border = androidx.compose.foundation.BorderStroke(2.dp, Brush.sweepGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary)))
+            border = androidx.compose.foundation.BorderStroke(2.dp, if (isSystemActive) Brush.sweepGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.primary)) else Brush.linearGradient(listOf(Color.Gray, Color.DarkGray)))
         ) {
-            val primaryColor = MaterialTheme.colorScheme.primary
-            val centerRotation by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(animation = tween(10000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "CenterRotation")
+            val primaryColor = if (isSystemActive) MaterialTheme.colorScheme.primary else Color.Gray
+            val centerRotation by if (isSystemActive) {
+                infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(animation = tween(10000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "CenterRotation")
+            } else {
+                remember { mutableStateOf(0f) }
+            }
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     rotate(centerRotation) {
@@ -624,8 +642,8 @@ fun EnergyFlowSection(
                     }
                 }
                 Column(verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {
-                    Text("SYSTEM", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                    Text(text = displayMode, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface, lineHeight = 16.sp)
+                    Text("SYSTEM", style = MaterialTheme.typography.labelSmall, color = primaryColor, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+                    Text(text = displayMode, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center, color = if (isSystemActive) MaterialTheme.colorScheme.onSurface else Color.Gray, lineHeight = 16.sp)
                 }
             }
         }
@@ -642,15 +660,24 @@ fun EnergyNode(
     value: String,
     color: Color,
     isFlowing: Boolean = false,
+    isSystemActive: Boolean = true,
     labelPosition: LabelPosition = LabelPosition.BOTTOM
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "NodeAnim")
-    val rotation by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(animation = tween(3000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "RingRotation")
-    val scale by infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.05f, animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "PulseScale")
+    val rotation by if (isFlowing && isSystemActive) {
+        infiniteTransition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(animation = tween(3000, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "RingRotation")
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+    val scale by if (isFlowing && isSystemActive) {
+        infiniteTransition.animateFloat(initialValue = 1f, targetValue = 1.05f, animationSpec = infiniteRepeatable(animation = tween(1500, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "PulseScale")
+    } else {
+        remember { mutableStateOf(1f) }
+    }
 
-    Box(modifier = modifier.size(150.dp), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.size(150.dp).alpha(if (isSystemActive) 1f else 0.6f), contentAlignment = Alignment.Center) {
         Box(modifier = Modifier.size(76.dp), contentAlignment = Alignment.Center) {
-            if (isFlowing) {
+            if (isFlowing && isSystemActive) {
                 Canvas(modifier = Modifier.size(76.dp)) {
                     drawCircle(color = color.copy(alpha = 0.3f), radius = (size.width / 2) * scale, style = Stroke(width = 2.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), rotation * 2)))
                 }
@@ -675,17 +702,17 @@ fun EnergyNode(
 }
 
 @Composable
-fun StatusItem(modifier: Modifier = Modifier, icon: ImageVector, label: String, value: String, subValue: String? = null) {
-    Card(modifier = modifier, shape = MaterialTheme.shapes.extraLarge, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+fun StatusItem(modifier: Modifier = Modifier, icon: ImageVector, label: String, value: String, subValue: String? = null, enabled: Boolean = true) {
+    Card(modifier = modifier.alpha(if (enabled) 1f else 0.6f), shape = MaterialTheme.shapes.extraLarge, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Box(modifier = Modifier.size(40.dp).clip(CircleShape).background((if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant).copy(alpha = 0.4f)), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = null, tint = if (enabled) MaterialTheme.colorScheme.primary else Color.Gray, modifier = Modifier.size(24.dp))
             }
             Spacer(modifier = Modifier.height(16.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(label, style = MaterialTheme.typography.labelMedium, color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray)
+            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = if (enabled) MaterialTheme.colorScheme.onSurface else Color.Gray)
             if (!subValue.isNullOrEmpty() && subValue != "0") {
-                Text(subValue, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                Text(subValue, style = MaterialTheme.typography.bodySmall, color = if (enabled) MaterialTheme.colorScheme.secondary else Color.Gray.copy(alpha = 0.7f))
             }
         }
     }
@@ -696,7 +723,7 @@ fun StatusItem(modifier: Modifier = Modifier, icon: ImageVector, label: String, 
 fun EnergyFlowModernPreview() {
     MaterialTheme {
         Box(modifier = Modifier.background(MaterialTheme.colorScheme.surface).padding(20.dp)) {
-            EnergyFlowSection(pvPowerValue = 500.0, gridPowerValue = 0.0, batteryChargeValue = 200.0, batteryDischargeValue = 0.0, loadPowerValue = 300.0, pvPower = "500 W", gridPower = "230 V", batterySoc = "85%", batteryVoltage = "52.4 V", loadPower = "300 W", workMode = "PV Mode", onNodeClick = {})
+            EnergyFlowSection(isSystemActive = true, pvPowerValue = 500.0, gridPowerValue = 0.0, batteryChargeValue = 200.0, batteryDischargeValue = 0.0, loadPowerValue = 300.0, pvPower = "500 W", gridPower = "230 V", batterySoc = "85%", batteryVoltage = "52.4 V", loadPower = "300 W", workMode = "PV Mode", onNodeClick = {})
         }
     }
 }
