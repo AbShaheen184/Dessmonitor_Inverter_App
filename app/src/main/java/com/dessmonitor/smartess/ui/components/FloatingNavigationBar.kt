@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -105,7 +106,7 @@ fun FloatingNavigationBar(
                         )
                         
                         val itemScale by animateFloatAsState(
-                            targetValue = if (isSelected) 1.15f else 1.0f,
+                            targetValue = if (isSelected) 1.05f else 1.0f,
                             animationSpec = spring(dampingRatio = 0.7f, stiffness = 300f),
                             label = "itemScale"
                         )
@@ -127,19 +128,23 @@ fun FloatingNavigationBar(
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.scale(itemScale)
+                                modifier = Modifier
+                                    .padding(horizontal = 2.dp)
+                                    .scale(itemScale)
                             ) {
                                 Icon(
                                     imageVector = item.icon,
                                     contentDescription = item.title,
                                     tint = contentColor,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
                                     text = item.title,
                                     color = contentColor,
-                                    fontSize = 10.sp,
+                                    fontSize = 9.5.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                                 )
                             }

@@ -1,8 +1,11 @@
 package com.dessmonitor.smartess.ui.screens
 
+import android.view.autofill.AutofillManager
+import android.view.autofill.AutofillValue
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -13,26 +16,99 @@ import androidx.compose.material.icons.filled.SolarPower
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.AutofillNode
+import androidx.compose.ui.autofill.AutofillType
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalAutofill
+import androidx.compose.ui.platform.LocalAutofillTree
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun LoginScreen(
     repository: DeviceRepository,
     onLoginSuccess: () -> Unit
 ) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val focusManager = LocalFocusManager.current
+    val autofillManager = remember { context.getSystemService(AutofillManager::class.java) }
+    val autofill = LocalAutofill.current
+    val autofillTree = LocalAutofillTree.current
+
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var companyKey by remember { mutableStateOf("bnrl_frRFjEz8Mkn") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    val usernameNode = remember {
+        AutofillNode(
+            autofillTypes = listOf(AutofillType.Username, AutofillType.EmailAddress),
+            onFill = { username = it }
+        )
+    }
+
+    val passwordNode = remember {
+        AutofillNode(
+            autofillTypes = listOf(AutofillType.Password),
+            onFill = { password = it }
+        )
+    }
+
+    DisposableEffect(autofillTree) {
+        autofillTree.children[usernameNode.id] = usernameNode
+        autofillTree.children[passwordNode.id] = passwordNode
+        onDispose {
+            autofillTree.children.remove(usernameNode.id)
+            autofillTree.children.remove(passwordNode.id)
+        }
+    }
+
+    fun performLogin() {
+        if (username.isBlank() || password.isBlank()) {
+            errorMessage = "Please enter username and password"
+            return
+        }
+        
+        // Clear focus to dismiss soft keyboard and signal input completion to Autofill Framework
+        focusManager.clearFocus()
+        
+        // Explicitly send value updates to system Autofill Service right before submitting
+        autofillManager?.notifyValueChanged(view, usernameNode.id, AutofillValue.forText(username))
+        autofillManager?.notifyValueChanged(view, passwordNode.id, AutofillValue.forText(password))
+        
+        isLoading = true
+        errorMessage = null
+        
+        scope.launch {
+            val result = repository.login(username, password, companyKey)
+            isLoading = false
+            result.onSuccess {
+                // Inform the Android framework that the form was completed and submitted successfully
+                autofillManager?.commit()
+                onLoginSuccess()
+            }.onFailure {
+                errorMessage = it.message ?: "Authentication failed"
+            }
+        }
+    }
 
     Scaffold { padding ->
         Box(
@@ -81,11 +157,35 @@ fun LoginScreen(
 
                 OutlinedTextField(
                     value = username,
-                    onValueChange = { username = it },
+                    onValueChange = { 
+                        username = it
+                        autofillManager?.notifyValueChanged(view, usernameNode.id, AutofillValue.forText(it))
+                    },
                     label = { Text("Username / Email") },
                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Email,
+                        imeAction = ImeAction.Next
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { 
+                            usernameNode.boundingBox = it.boundsInWindow() 
+                        }
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                autofill?.requestAutofillForNode(usernameNode)
+                                autofillManager?.notifyViewEntered(view, usernameNode.id, usernameNode.boundingBox?.let { 
+                                    android.graphics.Rect(it.left.toInt(), it.top.toInt(), it.right.toInt(), it.bottom.toInt()) 
+                                } ?: android.graphics.Rect())
+                            } else {
+                                autofillManager?.notifyViewExited(view, usernameNode.id)
+                            }
+                        },
                     shape = MaterialTheme.shapes.large
                 )
 
@@ -93,13 +193,36 @@ fun LoginScreen(
 
                 OutlinedTextField(
                     value = password,
-                    onValueChange = { password = it },
+                    onValueChange = { 
+                        password = it
+                        autofillManager?.notifyValueChanged(view, passwordNode.id, AutofillValue.forText(it))
+                    },
                     label = { Text("Password") },
                     leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Password,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { performLogin() }
+                    ),
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { 
+                            passwordNode.boundingBox = it.boundsInWindow() 
+                        }
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                autofill?.requestAutofillForNode(passwordNode)
+                                autofillManager?.notifyViewEntered(view, passwordNode.id, passwordNode.boundingBox?.let { 
+                                    android.graphics.Rect(it.left.toInt(), it.top.toInt(), it.right.toInt(), it.bottom.toInt()) 
+                                } ?: android.graphics.Rect())
+                            } else {
+                                autofillManager?.notifyViewExited(view, passwordNode.id)
+                            }
+                        },
                     shape = MaterialTheme.shapes.large
                 )
 
@@ -127,23 +250,7 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Button(
-                    onClick = {
-                        if (username.isBlank() || password.isBlank()) {
-                            errorMessage = "Please enter username and password"
-                            return@Button
-                        }
-                        isLoading = true
-                        errorMessage = null
-                        scope.launch {
-                            val result = repository.login(username, password, companyKey)
-                            isLoading = false
-                            result.onSuccess {
-                                onLoginSuccess()
-                            }.onFailure {
-                                errorMessage = it.message ?: "Authentication failed"
-                            }
-                        }
-                    },
+                    onClick = { performLogin() },
                     enabled = !isLoading,
                     modifier = Modifier
                         .fillMaxWidth()
