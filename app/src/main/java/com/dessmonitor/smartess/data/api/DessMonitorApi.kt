@@ -2,14 +2,15 @@ package com.dessmonitor.smartess.data.api
 
 import android.util.Log
 import com.dessmonitor.smartess.data.models.DataPoint
-import com.dessmonitor.smartess.data.models.DeviceInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 
 class DessMonitorAPI(
     var username: String = "",
@@ -20,7 +21,13 @@ class DessMonitorAPI(
     var token: String? = null
     var secret: String? = null
     private var tokenExpire: Long? = null
-    private val client = OkHttpClient()
+
+    private val client = OkHttpClient.Builder()
+        .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .build()
 
     companion object {
         private const val TAG = "DessMonitorAPI"
@@ -29,7 +36,11 @@ class DessMonitorAPI(
     private fun sha1(input: String): String {
         val md = MessageDigest.getInstance("SHA-1")
         val bytes = md.digest(input.toByteArray(Charsets.UTF_8))
-        return bytes.joinToString("") { "%02x".format(it) }
+        val sb = StringBuilder(bytes.size * 2)
+        for (b in bytes) {
+            sb.append(String.format("%02x", b))
+        }
+        return sb.toString()
     }
 
     private fun generateSignature(salt: String, actionString: String): String {
@@ -44,20 +55,18 @@ class DessMonitorAPI(
     }
 
     private fun isTokenExpired(): Boolean {
-        val expire = tokenExpire
-        if (token == null || expire == null) return true
+        val expire = tokenExpire ?: return true
+        if (token == null) return true
         val currentTime = System.currentTimeMillis() / 1000
         return currentTime >= expire
     }
 
     private fun buildActionString(action: String, params: Map<String, Any>?): String {
-        var actionString = "&action=$action"
-        if (params != null) {
-            for ((key, value) in params) {
-                actionString += "&$key=$value"
-            }
+        val sb = StringBuilder("&action=").append(action)
+        params?.forEach { (key, value) ->
+            sb.append('&').append(key).append('=').append(value)
         }
-        return actionString
+        return sb.toString()
     }
 
     private suspend fun makeRequest(action: String, params: Map<String, Any>? = null): JSONObject = withContext(Dispatchers.IO) {
@@ -70,39 +79,46 @@ class DessMonitorAPI(
         val actionString = buildActionString(action, params)
         val signature = generateSignature(salt, actionString)
 
-        var url = "$baseUrl?sign=$signature&salt=$salt"
-        if (!token.isNullOrEmpty() && action != "authSource") {
-            url += "&token=$token"
-        }
-        url += actionString
+        val urlBuilder = StringBuilder(baseUrl)
+            .append("?sign=").append(signature)
+            .append("&salt=").append(salt)
 
-        Log.d(TAG, "Requesting $action URL: $url")
+        if (!token.isNullOrEmpty() && action != "authSource") {
+            urlBuilder.append("&token=").append(token)
+        }
+        urlBuilder.append(actionString)
 
         val request = Request.Builder()
-            .url(url)
+            .url(urlBuilder.toString())
             .build()
 
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                Log.e(TAG, "HTTP error $action: ${response.code}")
-                throw IOException("HTTP ${response.code}: ${response.message}")
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val code = response.code
+                    Log.e(TAG, "HTTP error $action: $code")
+                    throw IOException("HTTP $code")
+                }
+                val responseBody = response.body?.string() ?: throw IOException("Empty response body")
+                val json = JSONObject(responseBody)
+                val err = json.optInt("err", 0)
+                if (err != 0) {
+                    val desc = json.optString("desc", "API error $err")
+                    // Handle session expiry specifically if the API supports it
+                    if (err == 10001 || desc.contains("token", ignoreCase = true)) {
+                        tokenExpire = 0
+                    }
+                    Log.e(TAG, "API error $action: $desc")
+                    throw IOException(desc)
+                }
+                json
             }
-            val responseBody = response.body?.string() ?: "{}"
-            Log.d(TAG, "Response $action: $responseBody")
-            
-            // Log full history response to help debug structure and available fields
-            if (action.contains("History") || action.contains("Data")) {
-                Log.i(TAG, "FULL HISTORY RESPONSE for $action: $responseBody")
+        } catch (e: Exception) {
+            if (e !is IOException) {
+                Log.e(TAG, "Unexpected error in $action", e)
+                throw IOException(e.message, e)
             }
-            
-            val json = JSONObject(responseBody)
-            val err = json.optInt("err", 0)
-            if (err != 0) {
-                val desc = json.optString("desc", "API error $err")
-                Log.e(TAG, "API error $action: $desc")
-                throw IOException(desc)
-            }
-            json
+            throw e
         }
     }
 
@@ -143,40 +159,22 @@ class DessMonitorAPI(
     suspend fun queryPlants(): List<JSONObject> = withContext(Dispatchers.IO) {
         val response = makeRequest("queryPlants", mapOf("pagesize" to 50))
         val dat = response.optJSONObject("dat")
-        val plantsArray = dat?.optJSONArray("plant")
-        val list = mutableListOf<JSONObject>()
-        if (plantsArray != null) {
-            for (i in 0 until plantsArray.length()) {
-                list.add(plantsArray.getJSONObject(i))
-            }
-        }
-        list
+        val plantsArray = dat?.optJSONArray("plant") ?: return@withContext emptyList()
+        List(plantsArray.length()) { plantsArray.getJSONObject(it) }
     }
 
     suspend fun queryCollectorsForProject(pid: Long): List<JSONObject> = withContext(Dispatchers.IO) {
         val response = makeRequest("webQueryCollectorsEs", mapOf("pid" to pid, "page" to 0, "pagesize" to 50))
         val dat = response.optJSONObject("dat")
-        val colArray = dat?.optJSONArray("collector")
-        val list = mutableListOf<JSONObject>()
-        if (colArray != null) {
-            for (i in 0 until colArray.length()) {
-                list.add(colArray.getJSONObject(i))
-            }
-        }
-        list
+        val colArray = dat?.optJSONArray("collector") ?: return@withContext emptyList()
+        List(colArray.length()) { colArray.getJSONObject(it) }
     }
 
     suspend fun queryCollectorDevices(pn: String): List<JSONObject> = withContext(Dispatchers.IO) {
         val response = makeRequest("queryCollectorDevices", mapOf("pn" to pn))
         val dat = response.optJSONObject("dat")
-        val devArray = dat?.optJSONArray("dev")
-        val list = mutableListOf<JSONObject>()
-        if (devArray != null) {
-            for (i in 0 until devArray.length()) {
-                list.add(devArray.getJSONObject(i))
-            }
-        }
-        list
+        val devArray = dat?.optJSONArray("dev") ?: return@withContext emptyList()
+        List(devArray.length()) { devArray.getJSONObject(it) }
     }
 
     suspend fun queryDeviceLastData(pn: String, devcode: Int, devaddr: Int, sn: String): List<DataPoint> = withContext(Dispatchers.IO) {
@@ -187,19 +185,19 @@ class DessMonitorAPI(
             "sn" to sn,
             "i18n" to "en"
         )
-        val response = makeRequest("queryDeviceLastData", params)
+        val response = try { makeRequest("queryDeviceLastData", params) } catch (_: Exception) { return@withContext emptyList() }
         val dat = response.optJSONObject("dat")
         val datArray = dat?.optJSONArray("list") ?: dat?.optJSONArray("data") ?: response.optJSONArray("dat")
-        val list = mutableListOf<DataPoint>()
-        if (datArray != null) {
-            for (i in 0 until datArray.length()) {
-                val item = datArray.getJSONObject(i)
-                val title = item.optString("title").ifEmpty { item.optString("name") }
-                val value = item.opt("val") ?: item.opt("value") ?: ""
-                val unit = item.optString("unit")
-                if (title.isNotEmpty()) {
-                    list.add(DataPoint(title = title, value = value, unit = if (unit.isEmpty()) null else unit))
-                }
+        if (datArray == null) return@withContext emptyList()
+
+        val list = ArrayList<DataPoint>(datArray.length())
+        for (i in 0 until datArray.length()) {
+            val item = datArray.getJSONObject(i)
+            val title = listOf("title", "name", "label", "des", "desc").map { item.optString(it) }.firstOrNull { it.isNotEmpty() } ?: ""
+            val value = listOf("val", "value", "v").map { item.opt(it) }.firstOrNull { it != null } ?: ""
+            val unit = item.optString("unit")
+            if (title.isNotEmpty()) {
+                list.add(DataPoint(title = title, value = value, unit = if (unit.isEmpty()) null else unit))
             }
         }
         list
@@ -214,19 +212,19 @@ class DessMonitorAPI(
             "i18n" to "en_US",
             "source" to "1"
         )
-        val response = makeRequest("queryDeviceParsEs", params)
+        val response = try { makeRequest("queryDeviceParsEs", params) } catch (_: Exception) { return@withContext emptyList() }
         val dat = response.optJSONObject("dat")
-        val paramsArray = dat?.optJSONArray("parameter")
-        val list = mutableListOf<DataPoint>()
-        if (paramsArray != null) {
-            for (i in 0 until paramsArray.length()) {
-                val item = paramsArray.getJSONObject(i)
-                val name = item.optString("name", "")
-                val value = item.opt("val") ?: ""
-                val unit = item.optString("unit", "")
-                val id = item.optString("par", "")
+        val paramsArray = dat?.optJSONArray("parameter") ?: dat?.optJSONArray("list") ?: dat?.optJSONArray("data") ?: return@withContext emptyList()
+
+        val list = ArrayList<DataPoint>(paramsArray.length())
+        for (i in 0 until paramsArray.length()) {
+            val item = paramsArray.getJSONObject(i)
+            val name = listOf("name", "title", "label").map { item.optString(it) }.firstOrNull { it.isNotEmpty() } ?: ""
+            val value = listOf("val", "value", "v").map { item.opt(it) }.firstOrNull { it != null } ?: ""
+            val unit = item.optString("unit", "")
+            val id = listOf("par", "id", "key").map { item.optString(it) }.firstOrNull { it.isNotEmpty() } ?: ""
+            if (name.isNotEmpty()) {
                 list.add(DataPoint(title = name, value = value, unit = if (unit.isEmpty()) null else unit, id = id))
-                Log.d(TAG, "Parameter: $name, ID: $id")
             }
         }
         list
@@ -235,14 +233,8 @@ class DessMonitorAPI(
     suspend fun webQueryDeviceEs(pid: Long): List<JSONObject> = withContext(Dispatchers.IO) {
         val response = makeRequest("webQueryDeviceEs", mapOf("pid" to pid, "pagesize" to 50))
         val dat = response.optJSONObject("dat")
-        val devices = dat?.optJSONArray("device")
-        val list = mutableListOf<JSONObject>()
-        if (devices != null) {
-            for (i in 0 until devices.length()) {
-                list.add(devices.getJSONObject(i))
-            }
-        }
-        list
+        val devices = dat?.optJSONArray("device") ?: return@withContext emptyList()
+        List(devices.length()) { devices.getJSONObject(it) }
     }
 
     suspend fun queryDeviceHistoryData(pn: String, devcode: Int, devaddr: Int, sn: String, date: String, parameter: String? = null): JSONObject = withContext(Dispatchers.IO) {
@@ -255,7 +247,6 @@ class DessMonitorAPI(
             "i18n" to "en"
         )
         
-        // Try multiple history actions
         val actions = if (parameter != null) {
             listOf("querySPDeviceKeyParameterOneDay")
         } else {
@@ -270,7 +261,6 @@ class DessMonitorAPI(
         
         for (action in actions) {
             try {
-                // If we have a specific parameter, try different keys for it
                 val parameterKeys = if (parameter != null) listOf("parameter", "par", "id") else listOf("")
                 
                 for (paramKey in parameterKeys) {
@@ -284,17 +274,14 @@ class DessMonitorAPI(
                         currentParams["pagesize"] = 100
                     }
 
-                    // Add begin/end date for web actions
                     if (action.contains("web")) {
                         currentParams["beginDate"] = date
                         currentParams["endDate"] = date
                     }
 
-                    Log.d(TAG, "Trying history action: $action with $paramKey=$parameter")
                     val response = makeRequest(action, currentParams)
                     val dat = response.optJSONObject("dat")
                     
-                    // Check various possible data structures
                     val hasItems = (dat?.optJSONArray("detail")?.length() ?: 0) > 0 ||
                                   (dat?.optJSONArray("list")?.length() ?: 0) > 0 ||
                                   (dat?.optJSONArray("row")?.length() ?: 0) > 0 ||
@@ -302,7 +289,6 @@ class DessMonitorAPI(
                                   (response.optJSONArray("dat")?.length() ?: 0) > 0
                     
                     if (hasItems) {
-                        Log.d(TAG, "Success with $action ($paramKey=$parameter)")
                         return@withContext response
                     }
                 }

@@ -32,6 +32,7 @@ class SmartEssApplication : Application() {
             )
         }
         
+        // Get the repository from Koin
         deviceRepository = getKoin().get()
         
         // Start background automation service if any rules are enabled

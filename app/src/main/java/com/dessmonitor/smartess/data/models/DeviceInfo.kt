@@ -13,9 +13,8 @@ data class DeviceInfo(
     val collectorMeta: Map<String, Any>? = null,
     val dataPoints: List<DataPoint> = emptyList()
 ) {
-    // Helper function to get the model name from devcode
     fun getDisplayName(): String {
-        return alias ?: getModelName()
+        return alias.takeIf { !it.isNullOrBlank() } ?: getModelName()
     }
 
     fun getModelName(): String {
@@ -41,17 +40,4 @@ data class DataPoint(
     val value: Any,
     val unit: String? = null,
     val id: String? = null
-) {
-    // Helper to get sensor type from title
-    fun getSensorType(): String? {
-        return when (title) {
-            "Output Active Power" -> "POWER"
-            "Battery Power" -> "BATTERY_POWER"
-            "PV Power" -> "SOLAR_POWER"
-            "Grid Power" -> "GRID_POWER"
-            "State of Charge" -> "SOC"
-            // Add more mappings as needed based on SENSOR_TYPES from Python code
-            else -> null
-        }
-    }
-}
+)

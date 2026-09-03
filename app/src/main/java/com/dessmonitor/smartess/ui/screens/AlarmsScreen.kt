@@ -110,14 +110,14 @@ fun AlarmsScreen(
                     if (isRefreshing) {
                         CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                     } else {
-                        val rotation by animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
+                        val rotation = animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 Icons.Default.ArrowDownward,
                                 contentDescription = null,
                                 modifier = Modifier
                                     .size(28.dp)
-                                    .rotate(rotation),
+                                    .rotate(rotation.value),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(

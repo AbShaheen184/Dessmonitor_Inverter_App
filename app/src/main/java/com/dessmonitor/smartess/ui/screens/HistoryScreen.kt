@@ -1,5 +1,10 @@
 package com.dessmonitor.smartess.ui.screens
 
+import android.content.Context
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.*
 import androidx.compose.runtime.*
@@ -19,11 +25,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.OutputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -38,6 +47,7 @@ fun HistoryScreen(
     val devices by repository.devices.observeAsState(emptyList())
     val activeDevice = devices.firstOrNull()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     
     val selectedDate by repository.selectedDate.observeAsState(LocalDate.now())
     var selectedTime by remember { mutableStateOf<String?>(null) }
@@ -46,6 +56,25 @@ fun HistoryScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
+
+    var csvContentToSave by remember { mutableStateOf<String?>(null) }
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri: Uri? ->
+        uri?.let {
+            csvContentToSave?.let { content ->
+                try {
+                    context.contentResolver.openOutputStream(it)?.use { outputStream ->
+                        outputStream.write(content.toByteArray())
+                    }
+                    Toast.makeText(context, "History exported successfully", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    Toast.makeText(context, "Failed to save file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
     
     val datePickerState = rememberDatePickerState(
         initialSelectedDateMillis = selectedDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -245,6 +274,66 @@ fun HistoryScreen(
         list
     }
 
+    fun exportFullHistoryToCsv() {
+        val content = StringBuilder()
+        val dat = historyJson?.optJSONObject("dat")
+        if (dat == null) {
+            Toast.makeText(context, "No history data available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val rows = dat.optJSONArray("row")
+        val titles = dat.optJSONArray("title")
+
+        if (rows != null && titles != null) {
+            // Row format: CSV with columns
+            val headers = mutableListOf<String>()
+            for (j in 0 until titles.length()) {
+                headers.add(titles.getJSONObject(j).optString("title", "Field $j"))
+            }
+            content.append(headers.joinToString(",")).append("\n")
+
+            for (i in 0 until rows.length()) {
+                val row = rows.getJSONObject(i)
+                val fields = row.optJSONArray("field")
+                if (fields != null) {
+                    val rowData = mutableListOf<String>()
+                    for (j in 0 until fields.length()) {
+                        val value = fields.optString(j, "").replace(",", " ")
+                        rowData.add(value)
+                    }
+                    content.append(rowData.joinToString(",")).append("\n")
+                }
+            }
+        } else {
+            // Detail/Flat format
+            val items = dat.optJSONArray("detail") ?: 
+                        dat.optJSONArray("list") ?: 
+                        dat.optJSONArray("data") ?: 
+                        historyJson?.optJSONArray("dat")
+            
+            if (items != null) {
+                content.append("Time,Title,Value,Unit\n")
+                for (i in 0 until items.length()) {
+                    val item = items.getJSONObject(i)
+                    val ts = item.optString("ts").ifEmpty { item.optString("time") }
+                    val title = item.optString("title").ifEmpty { item.optString("name") }
+                    val value = item.opt("val")?.toString() ?: item.opt("value")?.toString() ?: ""
+                    val unit = item.optString("unit")
+                    
+                    content.append("$ts,\"$title\",\"$value\",\"$unit\"\n")
+                }
+            }
+        }
+
+        if (content.length <= 6) { // Only headers or empty
+            Toast.makeText(context, "No data points found for export", Toast.LENGTH_SHORT).show()
+        } else {
+            csvContentToSave = content.toString()
+            createDocumentLauncher.launch("History_${selectedDate}.csv")
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -257,6 +346,9 @@ fun HistoryScreen(
                 actions = {
                     IconButton(onClick = { showDatePicker = true }) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date")
+                    }
+                    IconButton(onClick = { exportFullHistoryToCsv() }) {
+                        Icon(Icons.Default.Share, contentDescription = "Export CSV")
                     }
                 }
             )
@@ -310,14 +402,14 @@ fun HistoryScreen(
                     if (isRefreshing) {
                         CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                     } else {
-                        val rotation by animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
+                        val rotation = animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 Icons.Default.ArrowDownward,
                                 contentDescription = null,
                                 modifier = Modifier
                                     .size(28.dp)
-                                    .rotate(rotation),
+                                    .rotate(rotation.value),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
@@ -435,7 +527,7 @@ fun HistoryScreen(
                                             modifier = Modifier.padding(32.dp),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.outline,
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                            textAlign = TextAlign.Center
                                         )
                                     }
                                 }

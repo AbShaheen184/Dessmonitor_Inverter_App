@@ -120,9 +120,11 @@ fun InverterHomeScreen(
     val isStale = remember(activeDevice, lastUpdate, currentTime) {
         val deviceTime = activeDevice?.lastDataTime ?: 0L
         if (deviceTime > 0) {
-            (currentTime - deviceTime) > 10 * 60 * 1000 // 10 minutes stale based on inverter's clock
+            // 15 minutes threshold for inverter data (inverters often push data every 5-10 mins)
+            (currentTime - deviceTime) > 15 * 60 * 1000 
         } else {
-            lastUpdate > 0 && (currentTime - lastUpdate) > 10 * 60 * 1000 // Fallback to last fetch time
+            // If we don't have inverter time, use the last successful app fetch time
+            lastUpdate > 0 && (currentTime - lastUpdate) > 10 * 60 * 1000
         }
     }
 
@@ -237,14 +239,14 @@ fun InverterHomeScreen(
                     if (isRefreshing) {
                         CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
                     } else {
-                        val rotation by animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
+                        val rotation = animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(
                                 Icons.Default.ArrowDownward,
                                 contentDescription = null,
                                 modifier = Modifier
                                     .size(28.dp)
-                                    .rotate(rotation),
+                                    .rotate(rotation.value),
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             Text(
@@ -299,7 +301,7 @@ fun InverterHomeScreen(
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = if (isStale) "Data Sync Delayed" else "Inverter Offline",
+                                    text = if (!activeDevice.isOnline) "Inverter Offline" else "Data Sync Delayed",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.error
