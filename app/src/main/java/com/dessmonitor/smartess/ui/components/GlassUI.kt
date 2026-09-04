@@ -31,7 +31,7 @@ fun GlassSurface(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 36.dp,
-    tint: Color = MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+    tint: Color = Color.White.copy(alpha = 0.15f),
     blurRadius: Dp = 25.dp,
     content: @Composable () -> Unit
 ) {
@@ -55,17 +55,17 @@ fun GlassSurface(
         val specularBorderBrush = Brush.linearGradient(
             colors = if (isDark) {
                 listOf(
-                    Color.White.copy(alpha = 0.45f),
-                    Color.White.copy(alpha = 0.15f),
-                    Color.White.copy(alpha = 0.05f),
-                    Color.White.copy(alpha = 0.20f)
+                    Color.White.copy(alpha = 0.3f),
+                    Color.White.copy(alpha = 0.1f),
+                    Color.Transparent,
+                    Color.White.copy(alpha = 0.05f)
                 )
             } else {
                 listOf(
-                    Color.White.copy(alpha = 0.80f),
-                    Color.White.copy(alpha = 0.35f),
-                    Color.White.copy(alpha = 0.10f),
-                    Color.White.copy(alpha = 0.50f)
+                    Color.White.copy(alpha = 0.6f),
+                    Color.White.copy(alpha = 0.2f),
+                    Color.Transparent,
+                    Color.White.copy(alpha = 0.4f)
                 )
             }
         )
@@ -77,14 +77,14 @@ fun GlassSurface(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = if (isDark) 0.08f else 0.25f),
+                            Color.White.copy(alpha = if (isDark) 0.05f else 0.15f),
                             Color.Transparent,
-                            Color.Black.copy(alpha = if (isDark) 0.15f else 0.05f)
+                            Color.White.copy(alpha = if (isDark) 0.02f else 0.05f)
                         )
                     )
                 )
                 .border(
-                    width = 1.5.dp,
+                    width = 1.dp,
                     brush = specularBorderBrush,
                     shape = shape
                 )
