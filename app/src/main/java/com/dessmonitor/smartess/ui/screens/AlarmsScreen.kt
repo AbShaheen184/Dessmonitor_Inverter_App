@@ -31,8 +31,7 @@ import org.json.JSONObject
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlarmsScreen(
-    repository: DeviceRepository,
-    onMenuClick: () -> Unit = {}
+    repository: DeviceRepository
 ) {
     val devices by repository.devices.observeAsState(emptyList())
     val activeDevice = devices.firstOrNull()
@@ -70,12 +69,7 @@ fun AlarmsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Alarm History") },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
-                    }
-                }
+                title = { Text("Alarm History") }
             )
         }
     ) { padding ->

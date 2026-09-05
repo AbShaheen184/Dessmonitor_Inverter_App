@@ -47,8 +47,7 @@ import kotlinx.coroutines.launch
 fun InverterHomeScreen(
     repository: DeviceRepository,
     onSettingsClick: () -> Unit,
-    onTrendsClick: (String) -> Unit,
-    onMenuClick: () -> Unit = {}
+    onTrendsClick: (String) -> Unit
 ) {
     val devices by repository.devices.observeAsState(emptyList())
     val selectedStats by repository.selectedStats.observeAsState(emptyList())
@@ -158,11 +157,6 @@ fun InverterHomeScreen(
                                 fontWeight = if (activeDevice.isOnline && !isStale) FontWeight.Normal else FontWeight.Bold
                             )
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
                     }
                 },
                 actions = {

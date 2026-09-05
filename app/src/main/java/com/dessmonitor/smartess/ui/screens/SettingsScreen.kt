@@ -4,8 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -13,8 +11,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -23,12 +20,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import com.dessmonitor.smartess.data.models.DeviceInfo
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
+import com.dessmonitor.smartess.ui.components.FloatingNavigationBar
+import com.dessmonitor.smartess.ui.components.NavigationItem
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.*
+import org.json.JSONObject
 
 private fun categorizeSetting(name: String): String {
     val n = name.uppercase()
@@ -43,7 +50,7 @@ private fun categorizeSetting(name: String): String {
 }
 
 // Public helper function for processing fields across components
-fun parseControlFields(json: org.json.JSONObject, currentDevice: DeviceInfo, repository: DeviceRepository, individualValues: Map<String, String>? = null): List<ControlField> {
+fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: DeviceRepository, individualValues: Map<String, String>? = null): List<ControlField> {
     val list = mutableListOf<ControlField>()
     val dat = json.optJSONObject("dat")
     val fieldsArray = dat?.optJSONArray("field")
@@ -152,12 +159,93 @@ fun parseControlFields(json: org.json.JSONObject, currentDevice: DeviceInfo, rep
     return list
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+private sealed class SettingsTab(val route: String, val title: String, val icon: ImageVector) {
+    object Inverter : SettingsTab("inverter_settings", "Inverter", Icons.Default.ElectricBolt)
+    object Theme : SettingsTab("theme_settings", "Theme", Icons.Default.Palette)
+    object App : SettingsTab("app_settings", "App", Icons.Default.Settings)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     repository: DeviceRepository,
     device: DeviceInfo,
     onBack: () -> Unit,
+    initialCategory: String? = null
+) {
+    val settingsNavController = rememberNavController()
+    val hazeState = remember { HazeState() }
+    
+    val tabs = listOf(
+        SettingsTab.Inverter,
+        SettingsTab.Theme,
+        SettingsTab.App
+    )
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            NavHost(
+                navController = settingsNavController,
+                startDestination = SettingsTab.Inverter.route,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .haze(hazeState)
+            ) {
+                composable(SettingsTab.Inverter.route) {
+                    InverterSettingsContent(
+                        repository = repository,
+                        device = device,
+                        initialCategory = initialCategory
+                    )
+                }
+                composable(SettingsTab.Theme.route) {
+                    ThemeSettingsContent(repository = repository)
+                }
+                composable(SettingsTab.App.route) {
+                    AppSettingsContent()
+                }
+            }
+
+            val navBackStackEntry by settingsNavController.currentBackStackEntryAsState()
+            val currentRoute = navBackStackEntry?.destination?.route
+
+            FloatingNavigationBar(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp),
+                items = tabs.map { NavigationItem(it.route, it.title, it.icon) },
+                currentRoute = currentRoute,
+                hazeState = hazeState,
+                onItemClick = { route ->
+                    settingsNavController.navigate(route) {
+                        popUpTo(settingsNavController.graph.startDestinationId) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun InverterSettingsContent(
+    repository: DeviceRepository,
+    device: DeviceInfo,
     initialCategory: String? = null
 ) {
     var isLoading by remember { mutableStateOf(true) }
@@ -166,7 +254,7 @@ fun SettingsScreen(
     var selectedCategory by remember { mutableStateOf<String?>(initialCategory) }
     val scope = rememberCoroutineScope()
 
-    fun processFields(json: org.json.JSONObject, currentDevice: DeviceInfo, individualValues: Map<String, String>? = null): List<ControlField> {
+    fun processFields(json: JSONObject, currentDevice: DeviceInfo, individualValues: Map<String, String>? = null): List<ControlField> {
         return parseControlFields(json, currentDevice, repository, individualValues)
     }
 
@@ -238,88 +326,94 @@ fun SettingsScreen(
         fields.filter { it.category == selectedCategory }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Inverter Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
         }
-    ) { padding ->
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else {
-            Row(modifier = Modifier.padding(padding).fillMaxSize()) {
-                // Left Column: Categories
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                ) {
-                    items(categories) { category ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedCategory = category }
-                                .background(if (selectedCategory == category) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                                .padding(16.dp)
-                        ) {
-                            Text(
-                                text = category, 
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = if (selectedCategory == category) FontWeight.Bold else FontWeight.Normal,
-                                color = if (selectedCategory == category) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    } else {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Left Column: Categories
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                items(categories) { category ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedCategory = category }
+                            .background(if (selectedCategory == category) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = category, 
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = if (selectedCategory == category) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selectedCategory == category) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    item { Spacer(modifier = Modifier.height(110.dp)) }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 }
+                item { Spacer(modifier = Modifier.height(110.dp)) }
+            }
 
-                // Vertical Divider
-                VerticalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            // Vertical Divider
+            VerticalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
 
-                // Right Column: Settings
-                LazyColumn(
-                    modifier = Modifier.weight(2f).fillMaxHeight()
-                ) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = selectedCategory ?: "",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                            if (isSyncing) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Syncing...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                                }
+            // Right Column: Settings
+            LazyColumn(
+                modifier = Modifier.weight(2f).fillMaxHeight()
+            ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = selectedCategory ?: "",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        if (isSyncing) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Syncing...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                             }
                         }
                     }
-                    items(filteredFields) { field ->
-                        SettingsItem(field = field) { newValue ->
-                            scope.launch {
-                                repository.setControlValue(device, field.id, newValue)
-                            }
-                        }
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                    }
-                    item { Spacer(modifier = Modifier.height(110.dp)) }
                 }
+                items(filteredFields) { field ->
+                    SettingsItem(field = field) { newValue ->
+                        scope.launch {
+                            repository.setControlValue(device, field.id, newValue)
+                        }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                }
+                item { Spacer(modifier = Modifier.height(110.dp)) }
             }
         }
+    }
+}
+
+@Composable
+fun ThemeSettingsContent(repository: DeviceRepository) {
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            ThemeSettingsView(repository = repository)
+        }
+        item {
+            Spacer(modifier = Modifier.height(110.dp))
+        }
+    }
+}
+
+@Composable
+fun AppSettingsContent() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("App Settings (Coming Soon)")
     }
 }
 

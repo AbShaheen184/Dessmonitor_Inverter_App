@@ -137,8 +137,7 @@ private class ModernTrendsMarker(private val chart: LineChart) : IMarker {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TrendsScreen(
-    repository: DeviceRepository = koinInject(),
-    onMenuClick: () -> Unit = {}
+    repository: DeviceRepository = koinInject()
 ) {
     val devices by repository.devices.observeAsState(emptyList())
     val activeDevice = devices.firstOrNull()
@@ -267,12 +266,7 @@ fun TrendsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Performance Trends") },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
-                    }
-                }
+                title = { Text("Performance Trends") }
             )
         }
     ) { padding ->

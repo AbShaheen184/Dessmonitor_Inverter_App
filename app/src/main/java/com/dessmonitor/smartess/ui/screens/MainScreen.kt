@@ -48,8 +48,6 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 @Composable
 fun MainScreen(repository: DeviceRepository) {
     val navController = rememberNavController()
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
     // Shared blur state that links the background content (source) to the nav bar (child).
     val hazeState = remember { HazeState() }
     
@@ -71,77 +69,22 @@ fun MainScreen(repository: DeviceRepository) {
 
     val devices by repository.devices.observeAsState(emptyList())
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        gesturesEnabled = false,
-        drawerContent = {
-            ModalDrawerSheet {
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    "DessMonitor",
-                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                NavigationDrawerItem(
-                    label = { Text("Inverter Parameters") },
-                    selected = false,
-                    icon = { Icon(Icons.Default.SettingsInputComponent, null) },
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.Home.route) {
-                            popUpTo(navController.graph.startDestinationId)
-                            launchSingleTop = true
-                        }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                NavigationDrawerItem(
-                    label = { Text("Themes") },
-                    selected = false,
-                    icon = { Icon(Icons.Default.Palette, null) },
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate(Screen.Themes.route)
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                NavigationDrawerItem(
-                    label = { Text("App Settings") },
-                    selected = false,
-                    icon = { Icon(Icons.Default.AppSettingsAlt, null) },
-                    onClick = {
-                        scope.launch { drawerState.close() }
-                        navController.navigate("settings?category=General")
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    "v2.2.0",
-                    modifier = Modifier.padding(28.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-        }
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Background gradient + navigable content. This whole subtree is registered
-            // as the Haze blur *source*, so the nav bar can sample & blur it live.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .haze(state = hazeState)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface,
-                                MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
-                            )
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Background gradient + navigable content. This whole subtree is registered
+        // as the Haze blur *source*, so the nav bar can sample & blur it live.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .haze(state = hazeState)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surface,
+                            MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
                         )
                     )
-            ) {
+                )
+        ) {
             NavHost(
                 navController = navController,
                 startDestination = Screen.Home.route,
@@ -178,32 +121,27 @@ fun MainScreen(repository: DeviceRepository) {
                         onTrendsClick = { sensor: String ->
                             repository.showSensorInTrends(sensor)
                             navController.navigate(Screen.Trends.route)
-                        },
-                        onMenuClick = { scope.launch { drawerState.open() } }
+                        }
                     ) 
                 }
                 composable(Screen.Analysis.route) { 
                     AnalysisScreen(
-                        repository = repository,
-                        onMenuClick = { scope.launch { drawerState.open() } }
+                        repository = repository
                     ) 
                 }
                 composable(Screen.Trends.route) { 
                     TrendsScreen(
-                        repository = repository,
-                        onMenuClick = { scope.launch { drawerState.open() } }
+                        repository = repository
                     ) 
                 }
                 composable(Screen.History.route) { 
                     HistoryScreen(
-                        repository = repository,
-                        onMenuClick = { scope.launch { drawerState.open() } }
+                        repository = repository
                     ) 
                 }
                 composable(Screen.Alarms.route) { 
                     AlarmsScreen(
-                        repository = repository,
-                        onMenuClick = { scope.launch { drawerState.open() } }
+                        repository = repository
                     ) 
                 }
                 composable(Screen.Themes.route) {
@@ -236,15 +174,22 @@ fun MainScreen(repository: DeviceRepository) {
                     }
                 }
             }
-            } // end Haze source (the blurred background)
+        } // end Haze source (the blurred background)
 
-            // Floating Glass Navigation Bar — a sibling of the source, so it blurs
-            // the content behind it without blurring itself.
-            val navBackStackEntry by navController.currentBackStackEntryAsState()
-            val currentRoute = navBackStackEntry?.destination?.route
+        // Floating Glass Navigation Bar — a sibling of the source, so it blurs
+        // the content behind it without blurring itself.
+        val navBackStackEntry by navController.currentBackStackEntryAsState()
+        val currentRoute = navBackStackEntry?.destination?.route
 
+        val showMainNavBar = currentRoute != null && items.any { it.route == currentRoute }
+
+        AnimatedVisibility(
+            visible = showMainNavBar,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
             FloatingNavigationBar(
-                modifier = Modifier.align(Alignment.BottomCenter),
                 items = items.map { NavigationItem(it.route, it.title, it.icon) },
                 currentRoute = currentRoute,
                 hazeState = hazeState,

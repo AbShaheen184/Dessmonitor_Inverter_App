@@ -140,8 +140,7 @@ private class ModernAnalysisMarker(private val chart: LineChart) : IMarker {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AnalysisScreen(
-    repository: DeviceRepository = koinInject<DeviceRepository>(),
-    onMenuClick: () -> Unit = {}
+    repository: DeviceRepository = koinInject<DeviceRepository>()
 ) {
     val devices by repository.devices.observeAsState(emptyList<DeviceInfo>())
     val activeDevice = devices.firstOrNull()
@@ -288,11 +287,6 @@ fun AnalysisScreen(
                     Column {
                         Text("Analysis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                         Text("Last 24 Hours", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
                     }
                 }
             )

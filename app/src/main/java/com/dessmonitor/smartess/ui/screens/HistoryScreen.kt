@@ -41,8 +41,7 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
-    repository: DeviceRepository,
-    onMenuClick: () -> Unit = {}
+    repository: DeviceRepository
 ) {
     val devices by repository.devices.observeAsState(emptyList())
     val activeDevice = devices.firstOrNull()
@@ -338,11 +337,6 @@ fun HistoryScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Device History") },
-                navigationIcon = {
-                    IconButton(onClick = onMenuClick) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu")
-                    }
-                },
                 actions = {
                     IconButton(onClick = { showDatePicker = true }) {
                         Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date")
