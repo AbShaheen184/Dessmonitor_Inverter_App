@@ -195,25 +195,30 @@ fun SettingsScreen(
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            NavHost(
-                navController = settingsNavController,
-                startDestination = SettingsTab.Inverter.route,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .haze(hazeState)
+                    .haze(state = hazeState)
+                    .background(MaterialTheme.colorScheme.surface)
             ) {
-                composable(SettingsTab.Inverter.route) {
-                    InverterSettingsContent(
-                        repository = repository,
-                        device = device,
-                        initialCategory = initialCategory
-                    )
-                }
-                composable(SettingsTab.Theme.route) {
-                    ThemeSettingsContent(repository = repository)
-                }
-                composable(SettingsTab.App.route) {
-                    AppSettingsContent()
+                NavHost(
+                    navController = settingsNavController,
+                    startDestination = SettingsTab.Inverter.route,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    composable(SettingsTab.Inverter.route) {
+                        InverterSettingsContent(
+                            repository = repository,
+                            device = device,
+                            initialCategory = initialCategory
+                        )
+                    }
+                    composable(SettingsTab.Theme.route) {
+                        ThemeSettingsContent(repository = repository)
+                    }
+                    composable(SettingsTab.App.route) {
+                        AppSettingsContent()
+                    }
                 }
             }
 
