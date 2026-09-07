@@ -59,6 +59,11 @@ fun InverterHomeScreen(
 
     // Use the first device's data for the main view
     val activeDevice = devices.firstOrNull()
+
+    // Auto-refresh devices on launch in the background
+    LaunchedEffect(Unit) {
+        repository.loadDevices().onFailure { syncError = it.message }
+    }
     
     // Helper to find specific data point value
     fun getValue(vararg titles: String): String {
@@ -98,16 +103,17 @@ fun InverterHomeScreen(
     val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()) }
     val lastUpdateText = if (lastUpdate > 0) "Last update: ${timeFormatter.format(java.util.Date(lastUpdate))}" else "Never updated"
 
-    val pullOffset by animateDpAsState(
-        targetValue = when {
-            isRefreshing -> 80.dp
-            pullToRefreshState.distanceFraction > 0f -> (80.dp * pullToRefreshState.distanceFraction).coerceAtMost(120.dp)
-            else -> 0.dp
-        },
-        label = "PullOffset"
-    )
+    fun triggerRefresh() {
+        if (!isRefreshing) {
+            scope.launch {
+                isRefreshing = true
+                syncError = null
+                repository.loadDevices().onFailure { syncError = it.message }
+                isRefreshing = false
+            }
+        }
+    }
 
-    // Refresh logic moved to pullToRefresh modifier below
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -119,16 +125,14 @@ fun InverterHomeScreen(
     val isStale = remember(activeDevice, lastUpdate, currentTime) {
         val deviceTime = activeDevice?.lastDataTime ?: 0L
         if (deviceTime > 0) {
-            // 15 minutes threshold for inverter data (inverters often push data every 5-10 mins)
-            (currentTime - deviceTime) > 15 * 60 * 1000 
+            // 30 minutes threshold for inverter data sync warnings
+            (currentTime - deviceTime) > 30 * 60 * 1000 
         } else {
-            // If we don't have inverter time, use the last successful app fetch time
-            lastUpdate > 0 && (currentTime - lastUpdate) > 10 * 60 * 1000
+            lastUpdate > 0 && (currentTime - lastUpdate) > 30 * 60 * 1000
         }
     }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = { 
@@ -141,7 +145,7 @@ fun InverterHomeScreen(
                             )
                             if (activeDevice != null) {
                                 Spacer(Modifier.width(8.dp))
-                                val online = activeDevice.isOnline && !isStale
+                                val online = activeDevice.isOnline
                                 Surface(
                                     color = if (online) Color(0xFF4CAF50) else Color(0xFFF44336),
                                     shape = CircleShape,
@@ -150,16 +154,47 @@ fun InverterHomeScreen(
                             }
                         }
                         if (activeDevice != null) {
+                            val statusLabel = if (activeDevice.isOnline) {
+                                if (isStale) "Online • Syncing" else "Online"
+                            } else "Offline"
                             Text(
-                                text = "SN: ${activeDevice.serialNumber} • ${if (activeDevice.isOnline && !isStale) "Online" else if (isStale) "Stale Data" else "Offline"}",
+                                text = "SN: ${activeDevice.serialNumber} • $statusLabel",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = if (activeDevice.isOnline && !isStale) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                fontWeight = if (activeDevice.isOnline && !isStale) FontWeight.Normal else FontWeight.Bold
+                                color = if (activeDevice.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Normal
                             )
                         }
                     }
                 },
                 actions = {
+                    // Quick Refresh Button
+                    IconButton(
+                        onClick = { triggerRefresh() },
+                        enabled = !isRefreshing
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                            shape = CircleShape,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (isRefreshing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.5.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "Refresh Data",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                     IconButton(onClick = { showAutomationDialog = true }) {
                         Surface(
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
@@ -204,64 +239,17 @@ fun InverterHomeScreen(
     ) { padding ->
         val scrollState = rememberScrollState()
         
-        Box(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { triggerRefresh() },
+            state = pullToRefreshState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .pullToRefresh(
-                    state = pullToRefreshState,
-                    isRefreshing = isRefreshing,
-                    onRefresh = {
-                        scope.launch {
-                            isRefreshing = true
-                            syncError = null
-                            repository.loadDevices().onFailure { syncError = it.message }
-                            isRefreshing = false
-                        }
-                    }
-                )
         ) {
-            // Pull to Refresh UI (Behind content, visible when pushed down)
-            if (pullToRefreshState.distanceFraction > 0f || isRefreshing) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(pullOffset)
-                        .padding(top = 16.dp),
-                    contentAlignment = Alignment.TopCenter
-                ) {
-                    if (isRefreshing) {
-                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
-                    } else {
-                        val rotation = animateFloatAsState(if (pullToRefreshState.distanceFraction >= 1f) 180f else 0f)
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Default.ArrowDownward,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .rotate(rotation.value),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = if (pullToRefreshState.distanceFraction >= 1f) "Release to refresh" else "Pull down to refresh",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = lastUpdateText,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
-                }
-            }
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .offset(y = pullOffset)
                     .padding(horizontal = 16.dp)
                     .verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -269,13 +257,17 @@ fun InverterHomeScreen(
             if (activeDevice == null) {
                 CircularProgressIndicator(modifier = Modifier.padding(top = 32.dp))
                 Text("Connecting to server...", modifier = Modifier.padding(top = 16.dp))
-                
-                LaunchedEffect(Unit) {
-                    repository.loadDevices().onFailure { syncError = it.message }
+                if (syncError != null) {
+                    Text(
+                        text = syncError ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
             } else {
-                // Connectivity Status Banner
-                if (!activeDevice.isOnline || isStale) {
+                // Connectivity Status Banner: ONLY shown when device is offline or data is significantly delayed
+                if (!activeDevice.isOnline) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
@@ -287,15 +279,15 @@ fun InverterHomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = if (isStale) Icons.Default.Warning else Icons.Default.CloudOff,
+                                imageVector = Icons.Default.CloudOff,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(Modifier.width(12.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = if (!activeDevice.isOnline) "Inverter Offline" else "Data Sync Delayed",
+                                    text = "Inverter Offline",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.error
@@ -303,17 +295,57 @@ fun InverterHomeScreen(
                                 val fullFormatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
                                 val displayTime = activeDevice.lastDataTime ?: lastUpdate
                                 Text(
-                                    text = "Last update: ${if (displayTime > 0) fullFormatter.format(java.util.Date(displayTime)) else "Never"}",
+                                    text = "Last seen: ${if (displayTime > 0) fullFormatter.format(java.util.Date(displayTime)) else "Never"}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
-                                if (isStale) {
-                                    Text(
-                                        text = "Inverter might be disconnected from Wi-Fi.",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
-                                    )
-                                }
+                            }
+                            TextButton(
+                                onClick = { triggerRefresh() },
+                                enabled = !isRefreshing
+                            ) {
+                                Text("Retry", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                } else if (isStale) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        shape = MaterialTheme.shapes.medium,
+                        tonalElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Telemetry Sync Delayed",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.tertiary
+                                )
+                                val fullFormatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+                                val displayTime = activeDevice.lastDataTime ?: lastUpdate
+                                Text(
+                                    text = "Last report: ${if (displayTime > 0) fullFormatter.format(java.util.Date(displayTime)) else "Never"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                            TextButton(
+                                onClick = { triggerRefresh() },
+                                enabled = !isRefreshing
+                            ) {
+                                Text("Refresh", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -326,7 +358,7 @@ fun InverterHomeScreen(
                 val batteryCharge = getNumeric("Battery Charge Current", "Battery Charging Current")
                 val batteryDischarge = getNumeric("Battery Discharge Current", "Battery Discharging Current")
                 val workMode = getValue("Operating mode", "work state", "Inverter Mode")
-                val isSystemActive = activeDevice.isOnline && !isStale
+                val isSystemActive = activeDevice.isOnline
 
                 EnergyFlowSection(
                     isSystemActive = isSystemActive,

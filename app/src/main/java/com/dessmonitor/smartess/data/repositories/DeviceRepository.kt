@@ -251,11 +251,13 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
             if (success) {
                 prefs.edit().putString("username", username).putString("password", password).putString("company_key", companyKey).apply()
                 _isLoggedIn.postValue(true)
-                loadDevices()
+                scope.launch { loadDevices() }
                 Result.success(true)
             } else {
                 Result.failure(Exception("Invalid credentials"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) { Result.failure(e) }
     }
 
@@ -309,6 +311,84 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         return value
     }
 
+    private fun determineOnlineStatus(
+        devJson: JSONObject,
+        deviceSummary: JSONObject?,
+        collector: JSONObject?,
+        lastData: List<DataPoint>
+    ): Boolean {
+        // 1. If device has current telemetry data received from the server, it is online!
+        if (lastData.isNotEmpty()) {
+            return true
+        }
+
+        // 2. Check devJson (from queryCollectorDevices)
+        val devLost = when (val l = devJson.opt("lost")) {
+            is Number -> l.toInt()
+            is String -> l.toIntOrNull()
+            else -> null
+        }
+        if (devLost == 0) return true
+        if (devLost == 1) return false
+
+        val devStatus = when (val s = devJson.opt("status")) {
+            is Number -> s.toInt()
+            is String -> s.toIntOrNull()
+            else -> null
+        }
+        if (devStatus != null) {
+            return devStatus > 0
+        }
+
+        // 3. Check deviceSummary (from webQueryDeviceEs)
+        if (deviceSummary != null) {
+            val lost = when (val l = deviceSummary.opt("lost")) {
+                is Number -> l.toInt()
+                is String -> l.toIntOrNull()
+                else -> null
+            }
+            if (lost == 0) return true
+            if (lost == 1) return false
+
+            val status = when (val s = deviceSummary.opt("status")) {
+                is Number -> s.toInt()
+                is String -> s.toIntOrNull()
+                else -> null
+            }
+            if (status != null) {
+                return status > 0
+            }
+
+            val statusText = deviceSummary.optString("statusText").ifEmpty { deviceSummary.optString("status_text") }
+            if (statusText.isNotEmpty()) {
+                if (statusText.contains("off", ignoreCase = true) || statusText.contains("lost", ignoreCase = true) || statusText.contains("disconnect", ignoreCase = true)) {
+                    return false
+                }
+                if (statusText.contains("on", ignoreCase = true) || statusText.contains("norm", ignoreCase = true) || statusText.contains("work", ignoreCase = true)) {
+                    return true
+                }
+            }
+        }
+
+        // 4. Check collector status
+        if (collector != null) {
+            val colLost = when (val l = collector.opt("lost")) {
+                is Number -> l.toInt()
+                is String -> l.toIntOrNull()
+                else -> null
+            }
+            if (colLost == 1) return false
+            val colStatus = when (val s = collector.opt("status")) {
+                is Number -> s.toInt()
+                is String -> s.toIntOrNull()
+                else -> null
+            }
+            if (colStatus != null && colStatus > 0) return true
+        }
+
+        return true
+    }
+
     suspend fun loadDevices(): Result<List<DeviceInfo>> = withContext(Dispatchers.IO) {
         try {
             val plants = api.queryPlants()
@@ -318,13 +398,21 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 plants.map { plant ->
                     async {
                         val pid = plant.optLong("pid")
-                        val collectors = api.queryCollectorsForProject(pid)
-                        val summaryList = try { api.webQueryDeviceEs(pid) } catch (_: Exception) { emptyList<JSONObject>() }
+                        val collectorsDeferred = async { api.queryCollectorsForProject(pid) }
+                        val summaryDeferred = async { try { api.webQueryDeviceEs(pid) } catch (_: Exception) { emptyList<JSONObject>() } }
+                        val collectors = collectorsDeferred.await()
+                        val summaryList = summaryDeferred.await()
                         
-                        collectors.flatMap { collector ->
+                        val collectorPairs = collectors.map { collector ->
+                            async {
+                                val pn = collector.optString("pn")
+                                val devResponse = api.queryCollectorDevices(pn)
+                                collector to devResponse
+                            }
+                        }.awaitAll()
+
+                        collectorPairs.flatMap { (collector, devResponse) ->
                             val pn = collector.optString("pn")
-                            val devResponse = api.queryCollectorDevices(pn)
-                            
                             devResponse.map { devJson ->
                                 async {
                                     val sn = devJson.optString("sn")
@@ -350,18 +438,20 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                                         .distinctBy { it.title }
                                         .map { it.copy(value = transformValue(devcode, it.title, it.value), title = mapSensorTitle(devcode, it.title)) }
                                     
-                                    // Optimization: Consider online if either summary status says so OR we just got fresh telemetry
-                                    val summaryOnline = deviceSummary?.optInt("status", 1) == 1
-                                    val hasFreshData = lastData.isNotEmpty()
-                                    val isOnline = summaryOnline || hasFreshData
+                                    val isOnline = determineOnlineStatus(devJson, deviceSummary, collector, lastData)
+                                    Log.d("DeviceRepository", "Device $sn online status: isOnline=$isOnline (devStatus=${devJson.opt("status")}, devLost=${devJson.opt("lost")}, summaryStatus=${deviceSummary?.opt("status")}, summaryLost=${deviceSummary?.opt("lost")})")
                                     
                                     val timestampStr = mergedData.find { it.title.equals("Timestamp", ignoreCase = true) || it.title.equals("Date Time", ignoreCase = true) }?.value?.toString()
                                     val lastDataTime = try {
                                         if (timestampStr != null) {
                                             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
-                                            sdf.parse(timestampStr)?.time
+                                            sdf.parse(timestampStr)?.time ?: System.currentTimeMillis()
+                                        } else if (lastData.isNotEmpty()) {
+                                            System.currentTimeMillis()
                                         } else null
-                                    } catch (_: Exception) { null }
+                                    } catch (_: Exception) { 
+                                        if (lastData.isNotEmpty()) System.currentTimeMillis() else null
+                                    }
 
                                     DeviceInfo(
                                         serialNumber = sn, 
@@ -381,7 +471,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 }.flatMap { it.await() }.forEach { 
                     val device = it.await()
                     allDevices.add(device)
-                    launch { getAlarms(device) }
+                    scope.launch { getAlarms(device) }
                 }
             }
 
@@ -389,6 +479,8 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
             _lastUpdateTime.postValue(System.currentTimeMillis())
             prefs.edit().putString("cached_devices", gson.toJson(allDevices)).apply()
             Result.success(allDevices)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) { 
             Log.e("DeviceRepository", "Failed to load devices", e)
             Result.failure(e) 
@@ -455,6 +547,8 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 prefs.edit().putString("history_cache", gson.toJson(historyCache)).apply()
                 Result.success(resultJson)
             } else Result.failure(Exception("No data"))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) { Result.failure(e) }
     }
 
@@ -590,21 +684,44 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 }
             }
             Result.success(resultList)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) { Result.failure(e) }
     }
 
     fun getAlarmsFlow(deviceSn: String) = alarmDao.getAlarmsByDevice(deviceSn)
 
-    suspend fun getControlFields(device: DeviceInfo): Result<JSONObject> = withContext(Dispatchers.IO) {
-        try { Result.success(api.queryDeviceControlFields(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber)) } catch (e: Exception) { Result.failure(e) }
+    private val cachedControlFieldsMap = mutableMapOf<String, JSONObject>()
+
+    suspend fun getControlFields(device: DeviceInfo, forceRefresh: Boolean = false): Result<JSONObject> = withContext(Dispatchers.IO) {
+        val sn = device.serialNumber
+        if (!forceRefresh && cachedControlFieldsMap.containsKey(sn)) {
+            return@withContext Result.success(cachedControlFieldsMap[sn]!!)
+        }
+        try {
+            val json = api.queryDeviceControlFields(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber)
+            cachedControlFieldsMap[sn] = json
+            Result.success(json)
+        }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun getControlValue(device: DeviceInfo, fieldId: String): Result<JSONObject> = withContext(Dispatchers.IO) {
-        try { Result.success(api.queryDeviceCtrlValue(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber, fieldId)) } catch (e: Exception) { Result.failure(e) }
+        try { Result.success(api.queryDeviceCtrlValue(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber, fieldId)) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun setControlValue(device: DeviceInfo, fieldId: String, value: String): Result<Boolean> = withContext(Dispatchers.IO) {
-        try { api.setDeviceControlValue(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber, fieldId, value); Result.success(true) } catch (e: Exception) { Result.failure(e) }
+        try { 
+            api.setDeviceControlValue(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber, fieldId, value)
+            updateSettingsCache(fieldId, value)
+            cachedControlFieldsMap.remove(device.serialNumber)
+            Result.success(true) 
+        }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun evaluateAutomations(context: Context) = withContext(Dispatchers.IO) {

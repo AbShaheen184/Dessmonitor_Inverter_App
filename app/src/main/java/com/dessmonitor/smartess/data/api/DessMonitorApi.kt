@@ -100,6 +100,7 @@ class DessMonitorAPI(
                     throw IOException("HTTP $code")
                 }
                 val responseBody = response.body?.string() ?: throw IOException("Empty response body")
+                Log.d(TAG, "API response [$action]: $responseBody")
                 val json = JSONObject(responseBody)
                 val err = json.optInt("err", 0)
                 if (err != 0) {

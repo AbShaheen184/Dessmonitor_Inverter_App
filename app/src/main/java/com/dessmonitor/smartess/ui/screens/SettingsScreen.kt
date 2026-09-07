@@ -96,6 +96,9 @@ fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: 
             
             var rawVal = individualValues?.get(id) ?: ""
             if (rawVal.isEmpty()) {
+                rawVal = repository.getCachedSettingsValue(id) ?: ""
+            }
+            if (rawVal.isEmpty()) {
                 rawVal = f.optString("val", "").ifEmpty { 
                     f.optString("value", "").ifEmpty { 
                         f.optString("cur", "").ifEmpty { 
@@ -263,52 +266,16 @@ fun InverterSettingsContent(
         return parseControlFields(json, currentDevice, repository, individualValues)
     }
 
-    // Background refresh logic
+    // Load fields once on mount (fast and cached in repository)
     LaunchedEffect(device) {
-        // Always load fields once on mount
         repository.getControlFields(device).onSuccess { json ->
             fields = processFields(json, device)
             if (selectedCategory == null && fields.isNotEmpty()) {
                 selectedCategory = fields.first().category
             }
             isLoading = false
-        }.onFailure { isLoading = false }
-    }
-
-    LaunchedEffect(selectedCategory) {
-        if (selectedCategory != null && !repository.isCategorySynced(selectedCategory!!)) {
-            // Background sync ONLY if not already synced in this session
-            isSyncing = true
-            coroutineScope {
-                repository.getControlFields(device).onSuccess { fieldsJson ->
-                    val categoryFields = processFields(fieldsJson, device).filter { it.category == selectedCategory }
-                    
-                    // Concurrent fetch for each field's value in this category
-                    val deferredValues = categoryFields.map { field ->
-                        async {
-                            val res = repository.getControlValue(device, field.id)
-                            if (res.isSuccess) {
-                                val dat = res.getOrThrow().optJSONObject("dat")
-                                val v = dat?.optString("val") ?: dat?.optString("value") ?: ""
-                                field.id to v
-                            } else {
-                                field.id to ""
-                            }
-                        }
-                    }
-                    val valueMap = deferredValues.awaitAll().filter { it.second.isNotEmpty() }.toMap()
-                    
-                    // Refresh telemetry as well
-                    repository.loadDevices().onSuccess { devices ->
-                        val updatedDevice = devices.find { it.serialNumber == device.serialNumber } ?: device
-                        fields = processFields(fieldsJson, updatedDevice, valueMap)
-                        repository.markCategorySynced(selectedCategory!!)
-                    }.onFailure {
-                        fields = processFields(fieldsJson, device, valueMap)
-                    }
-                }
-            }
-            isSyncing = false
+        }.onFailure { 
+            isLoading = false 
         }
     }
 
@@ -370,7 +337,7 @@ fun InverterSettingsContent(
             ) {
                 item {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -380,17 +347,42 @@ fun InverterSettingsContent(
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.secondary
                         )
-                        if (isSyncing) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Syncing...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            } else {
+                                IconButton(
+                                    onClick = {
+                                        isSyncing = true
+                                        scope.launch {
+                                            repository.getControlFields(device, forceRefresh = true).onSuccess { json ->
+                                                fields = processFields(json, device)
+                                            }
+                                            isSyncing = false
+                                        }
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "Refresh Settings",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }
                 }
                 items(filteredFields) { field ->
                     SettingsItem(field = field) { newValue ->
+                        // Optimistically update the UI value immediately
+                        val newDisplay = field.options[newValue] ?: newValue
+                        fields = fields.map { f ->
+                            if (f.id == field.id) f.copy(currentValue = newDisplay) else f
+                        }
                         scope.launch {
                             repository.setControlValue(device, field.id, newValue)
                         }

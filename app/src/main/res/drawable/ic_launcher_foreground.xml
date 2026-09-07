@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -5,134 +6,136 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Ambient Solar Glow -->
-    <path android:pathData="M84,24m-24,0a24,24 0,1 1,48 0a24,24 0,1 1,-48 0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:centerX="84"
-                android:centerY="24"
-                android:gradientRadius="24"
-                android:type="radial">
-                <item android:color="#66FF9800" android:offset="0.0" />
-                <item android:color="#00FF9800" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Modern Sun Core -->
-    <path android:pathData="M84,24m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:centerX="84"
-                android:centerY="24"
-                android:gradientRadius="9"
-                android:type="radial">
-                <item android:color="#FFFFE082" android:offset="0.0" />
-                <item android:color="#FFFF9800" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Sleek Inverter Body - Base (Deep Primary Blue) -->
+    <!-- 1. Centered Sun Top -->
     <path
-        android:pathData="M30,42 C30,37 34,34 39,34 L69,34 C74,34 78,37 78,42 L78,84 C78,89 74,92 69,92 L39,92 C34,92 30,89 30,84 Z">
+        android:pathData="M54,22m-7,0a7,7 0 1,1 14,0a7,7 0 1,1 -14,0">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="30"
-                android:startY="34"
-                android:endX="78"
-                android:endY="92"
+                android:startX="47"
+                android:startY="15"
+                android:endX="61"
+                android:endY="29"
                 android:type="linear">
-                <item android:color="#E61565C0" android:offset="0.0" />
-                <item android:color="#E62196F3" android:offset="1.0" />
+                <item android:offset="0.0" android:color="#FFFFE066"/>
+                <item android:offset="1.0" android:color="#FFF97316"/>
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- Frosted Glass Overlay (The Glassmorphism Effect) -->
+    <!-- Sun Rays -->
     <path
-        android:pathData="M30,42 C30,37 34,34 39,34 L69,34 C74,34 78,37 78,42 L78,84 C78,89 74,92 69,92 L39,92 C34,92 30,89 30,84 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:startX="30"
-                android:startY="34"
-                android:endX="78"
-                android:endY="92"
-                android:type="linear">
-                <item android:color="#4DFFFFFF" android:offset="0.0" />
-                <item android:color="#1AFFFFFF" android:offset="0.3" />
-                <item android:color="#0DFFFFFF" android:offset="0.7" />
-                <item android:color="#33FFFFFF" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Sharp Edge Highlight (Glass Rim) -->
-    <path
-        android:strokeWidth="0.75"
-        android:pathData="M30,42 C30,37 34,34 39,34 L69,34 C74,34 78,37 78,42 L78,84 C78,89 74,92 69,92 L39,92 C34,92 30,89 30,84 Z">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="30"
-                android:startY="34"
-                android:endX="78"
-                android:endY="92"
-                android:type="linear">
-                <item android:color="#A6FFFFFF" android:offset="0.0" />
-                <item android:color="#26FFFFFF" android:offset="0.5" />
-                <item android:color="#66FFFFFF" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Internal Control Panel (Translucent Dark) -->
-    <path
-        android:fillColor="#4D000000"
-        android:pathData="M37,42h34c1.6,0 3,1.4 3,3v22c0,1.6 -1.4,3 -3,3h-34c-1.6,0 -3,-1.4 -3,-3v-22c0,-1.6 1.4,-3 3,-3z" />
-
-    <!-- Glowing Energy Flow Indicators (Green) -->
-    <path
-        android:strokeWidth="2.5"
+        android:pathData="M54,11 L54,13 M54,31 L54,33 M43,22 L45,22 M63,22 L65,22 M46,14 L48,16 M60,28 L62,30 M46,30 L48,28 M60,14 L62,16"
+        android:strokeWidth="1.2"
         android:strokeLineCap="round"
-        android:pathData="M42,54 L52,54 M56,54 L66,54">
-        <aapt:attr name="android:strokeColor">
-            <gradient
-                android:startX="42"
-                android:startY="54"
-                android:endX="66"
-                android:endY="54"
-                android:type="linear">
-                <item android:color="#4CAF50" android:offset="0.0" />
-                <item android:color="#B9F6CA" android:offset="0.5" />
-                <item android:color="#4CAF50" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
+        android:strokeColor="#CCFDE047"/>
 
-    <!-- Central Power Icon (Vibrant Orange Bolt) -->
-    <path android:pathData="M54,46l-4,9h3l-2.5,7l8,-11h-4.5l4,-5z">
+    <!-- 2. Angle Solar Panel Grid Center -->
+    <path
+        android:pathData="M30,42 L78,42 L84,52 L24,52 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="50"
-                android:startY="46"
-                android:endX="58"
-                android:endY="62"
+                android:startX="24"
+                android:startY="42"
+                android:endX="84"
+                android:endY="52"
                 android:type="linear">
-                <item android:color="#FFFFB74D" android:offset="0.0" />
-                <item android:color="#FFFF9800" android:offset="1.0" />
+                <item android:offset="0.0" android:color="#E61E3A8A"/>
+                <item android:offset="0.5" android:color="#E60284C7"/>
+                <item android:offset="1.0" android:color="#E61E3A8A"/>
             </gradient>
         </aapt:attr>
     </path>
+    <path
+        android:pathData="M30,42 L78,42 L84,52 L24,52 Z"
+        android:strokeWidth="1"
+        android:strokeColor="#B0E0F2FE"/>
 
-    <!-- Bottom Status Array (Glassy Nodes) -->
+    <!-- Solar Panel Segment Lines -->
     <path
-        android:fillColor="#81C784"
-        android:pathData="M42,80a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z" />
-    <path
-        android:fillColor="#40FFFFFF"
-        android:pathData="M51,80a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z" />
-    <path
-        android:fillColor="#40FFFFFF"
-        android:pathData="M60,80a3,3 0,1 0,6 0a3,3 0,1 0,-6 0z" />
+        android:pathData="M38,42 L35,52 M46,42 L45,52 M54,42 L54,52 M62,42 L63,52 M70,42 L73,52 M27,47 L81,47"
+        android:strokeWidth="0.8"
+        android:strokeColor="#70FFFFFF"/>
 
+    <!-- 3. Signal Node Indicators (AC - Bolt - Wave) -->
+    <!-- Connection Lines -->
+    <path
+        android:pathData="M54,52 L54,58 M36,65 L72,65 M54,72 L54,77"
+        android:strokeWidth="1.2"
+        android:strokeColor="#8038BDF8"/>
+
+    <!-- Left Circle (AC Wave) -->
+    <path
+        android:pathData="M36,65m-6,0a6,6 0 1,1 12,0a6,6 0 1,1 -12,0"
+        android:fillColor="#CC0F172A"
+        android:strokeWidth="1"
+        android:strokeColor="#FF38BDF8"/>
+    <path
+        android:pathData="M32,65 Q34,62 36,65 T40,65"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:strokeColor="#FF38BDF8"
+        android:fillColor="#00000000"/>
+
+    <!-- Center Circle (Lightning Bolt) -->
+    <path
+        android:pathData="M54,65m-7,0a7,7 0 1,1 14,0a7,7 0 1,1 -14,0"
+        android:fillColor="#CC0284C7"
+        android:strokeWidth="1.2"
+        android:strokeColor="#FF7DD3FC"/>
+    <path
+        android:pathData="M55,60 L50,66 L54,66 L53,70 L58,64 L54,64 Z"
+        android:fillColor="#FFFFFFFF"/>
+
+    <!-- Right Circle (Sine Graph) -->
+    <path
+        android:pathData="M72,65m-6,0a6,6 0 1,1 12,0a6,6 0 1,1 -12,0"
+        android:fillColor="#CC0F172A"
+        android:strokeWidth="1"
+        android:strokeColor="#FF38BDF8"/>
+    <path
+        android:pathData="M68,66 L70,63 L73,67 L76,64"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:strokeColor="#FF38BDF8"
+        android:fillColor="#00000000"/>
+
+    <!-- 4. Glass Inverter Device Base -->
+    <path
+        android:pathData="M30,78 L78,78 A3,3 0 0,1 81,81 L81,87 A3,3 0 0,1 78,90 L30,90 A3,3 0 0,1 27,87 L27,81 A3,3 0 0,1 30,78 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="27"
+                android:startY="78"
+                android:endX="81"
+                android:endY="90"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#E6F1F5F9"/>
+                <item android:offset="0.5" android:color="#E638BDF8"/>
+                <item android:offset="1.0" android:color="#E60F172A"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M30,78 L78,78 A3,3 0 0,1 81,81 L81,87 A3,3 0 0,1 78,90 L30,90 A3,3 0 0,1 27,87 L27,81 A3,3 0 0,1 30,78 Z"
+        android:strokeWidth="1"
+        android:strokeColor="#FFFFFFFF"/>
+
+    <!-- Inverter Power Button Ring -->
+    <path
+        android:pathData="M74,84m-2.5,0a2.5,2.5 0 1,1 5,0a2.5,2.5 0 1,1 -5,0"
+        android:strokeWidth="0.8"
+        android:strokeColor="#FF22C55E"
+        android:fillColor="#00000000"/>
+    <path
+        android:pathData="M74,82.5 L74,84.5"
+        android:strokeWidth="0.8"
+        android:strokeColor="#FF22C55E"/>
+
+    <!-- Ambient Sparkle Details -->
+    <path
+        android:pathData="M24,34 L25,36 L27,37 L25,38 L24,40 L23,38 L21,37 L23,36 Z"
+        android:fillColor="#90FFFFFF"/>
+    <path
+        android:pathData="M82,30 L82.5,31 L83.5,31.5 L82.5,32 L82,33 L81.5,32 L80.5,31.5 L81.5,31 Z"
+        android:fillColor="#90FFFFFF"/>
 </vector>
