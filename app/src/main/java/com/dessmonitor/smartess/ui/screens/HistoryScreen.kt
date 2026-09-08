@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -499,19 +500,20 @@ fun HistoryScreen(
                                         color = MaterialTheme.colorScheme.secondary
                                     )
                                 }
-                                items(dataForTime) { data ->
-                                    Surface(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                        shape = MaterialTheme.shapes.small,
-                                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                                itemsIndexed(dataForTime) { index, data ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(if (index % 2 == 1) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) else Color.Transparent)
+                                            .padding(horizontal = 16.dp, vertical = 12.dp)
                                     ) {
                                         Text(
                                             text = data,
-                                            modifier = Modifier.padding(12.dp),
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.Medium
                                         )
                                     }
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                                 }
                             } else {
                                 item {
