@@ -191,7 +191,7 @@ fun HistoryScreen(
             } else {
                 a.compareTo(b)
             }
-        }
+        }.reversed()
     }
 
     // Extract data for selected time
