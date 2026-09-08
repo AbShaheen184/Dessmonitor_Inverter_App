@@ -31,13 +31,20 @@ fun GlassSurface(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 36.dp,
-    tint: Color = Color.White.copy(alpha = 0.15f),
+    tint: Color? = null,
     blurRadius: Dp = 25.dp,
     content: @Composable () -> Unit
 ) {
     val shape = RoundedCornerShape(cornerRadius)
     val isDark = MaterialTheme.colorScheme.surface.let { color ->
         (color.red * 0.299 + color.green * 0.587 + color.blue * 0.114) < 0.5f
+    }
+    
+    // Adaptive tint: more opaque for better visibility
+    val surfaceTint = tint ?: if (isDark) {
+        Color.Black.copy(alpha = 0.3f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
     }
 
     Box(modifier = modifier.clip(shape)) {
@@ -46,28 +53,19 @@ fun GlassSurface(
             modifier = Modifier
                 .fillMaxSize()
                 .hazeChild(state = hazeState) {
-                    this.backgroundColor = tint
+                    this.backgroundColor = surfaceTint
                     this.blurRadius = blurRadius
                 }
         )
 
-        // 2) Liquid glass specular highlight border (bright top-left to transparent bottom-right)
-        val specularBorderBrush = Brush.linearGradient(
-            colors = if (isDark) {
-                listOf(
-                    Color.White.copy(alpha = 0.3f),
-                    Color.White.copy(alpha = 0.1f),
-                    Color.Transparent,
-                    Color.White.copy(alpha = 0.05f)
-                )
-            } else {
-                listOf(
-                    Color.White.copy(alpha = 0.6f),
-                    Color.White.copy(alpha = 0.2f),
-                    Color.Transparent,
-                    Color.White.copy(alpha = 0.4f)
-                )
-            }
+        // 2) accent-colored border
+        val accentBorderBrush = Brush.linearGradient(
+            colors = listOf(
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+            )
         )
 
         Box(
@@ -77,15 +75,15 @@ fun GlassSurface(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = if (isDark) 0.05f else 0.15f),
+                            Color.White.copy(alpha = if (isDark) 0.02f else 0.08f),
                             Color.Transparent,
-                            Color.White.copy(alpha = if (isDark) 0.02f else 0.05f)
+                            Color.White.copy(alpha = if (isDark) 0.01f else 0.03f)
                         )
                     )
                 )
                 .border(
-                    width = 1.dp,
-                    brush = specularBorderBrush,
+                    width = 1.2.dp, 
+                    brush = accentBorderBrush,
                     shape = shape
                 )
         )
