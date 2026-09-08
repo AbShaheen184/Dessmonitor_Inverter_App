@@ -83,7 +83,6 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     private val _trendsDays = MutableLiveData<Int>(3)
     val trendsDays: LiveData<Int> = _trendsDays
 
-    // History Cache (Date -> JSON String)
     private val historyCache = mutableMapOf<String, String>()
     
     // Session Settings Cache (FieldId -> ValueLabel)
@@ -104,7 +103,10 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         }
     }
     
-    // Categories synced in this session
+    // Persistent settings cache
+    private val cachedControlFieldsMap = mutableMapOf<String, JSONObject>()
+    
+    // session-based categories sync state
     private val syncedCategories = mutableSetOf<String>()
 
     fun markCategorySynced(category: String) {
@@ -199,6 +201,18 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
             api.password = savedPassword
             api.companyKey = savedCompanyKey
             _isLoggedIn.value = true
+        }
+
+        // Load cached settings definitions
+        val cachedFieldsJson = prefs.getString("cached_control_fields", null)
+        if (cachedFieldsJson != null) {
+            try {
+                val type = object : TypeToken<Map<String, String>>() {}.type
+                val map: Map<String, String> = gson.fromJson(cachedFieldsJson, type)
+                map.forEach { (sn, jsonStr) ->
+                    cachedControlFieldsMap[sn] = JSONObject(jsonStr)
+                }
+            } catch (_: Exception) {}
         }
 
         // Load cached devices
@@ -703,8 +717,6 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
     fun getAlarmsFlow(deviceSn: String) = alarmDao.getAlarmsByDevice(deviceSn)
 
-    private val cachedControlFieldsMap = mutableMapOf<String, JSONObject>()
-
     suspend fun getControlFields(device: DeviceInfo, forceRefresh: Boolean = false): Result<JSONObject> = withContext(Dispatchers.IO) {
         val sn = device.serialNumber
         val pn = device.pn
@@ -725,6 +737,11 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         try {
             val json = api.queryDeviceControlFields(pn, devcode, addr, sn)
             cachedControlFieldsMap[sn] = json
+            
+            // Persist the entire map
+            val persistentMap = cachedControlFieldsMap.mapValues { it.value.toString() }
+            prefs.edit().putString("cached_control_fields", gson.toJson(persistentMap)).apply()
+            
             Result.success(json)
         }
         catch (e: CancellationException) { throw e }
@@ -738,7 +755,15 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         val pn = device.pn ?: return@withContext Result.failure(Exception("Device missing PN"))
         val devcode = device.devcode ?: return@withContext Result.failure(Exception("Device missing devcode"))
         val addr = if (device.devaddr == null || device.devaddr == 0) 1 else device.devaddr
-        try { Result.success(api.queryDeviceCtrlValue(pn, devcode, addr, device.serialNumber, fieldId)) }
+        try { 
+            val res = api.queryDeviceCtrlValue(pn, devcode, addr, device.serialNumber, fieldId)
+            val dat = res.optJSONObject("dat")
+            val v = dat?.optString("val") ?: dat?.optString("value") ?: ""
+            if (v.isNotEmpty()) {
+                updateSettingsCache(fieldId, v)
+            }
+            Result.success(res)
+        }
         catch (e: CancellationException) { throw e }
         catch (e: Exception) { Result.failure(e) }
     }

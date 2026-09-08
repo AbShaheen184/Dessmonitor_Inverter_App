@@ -437,9 +437,13 @@ fun InverterSettingsContent(
                                     onClick = {
                                         isSyncing = true
                                         repository.clearSyncedCategories()
+                                        // Definitions are cached in repository map, values are in settings_cache.
+                                        // Refresh both.
                                         scope.launch {
                                             repository.getControlFields(device, forceRefresh = true).onSuccess { json ->
                                                 fields = processFields(json, device)
+                                                // Category value sync will trigger via LaunchedEffect(selectedCategory)
+                                                // since we cleared syncedCategories
                                             }
                                             isSyncing = false
                                         }
