@@ -39,15 +39,28 @@ import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
-private fun categorizeSetting(name: String): String {
+private fun categorizeSetting(name: String, id: String): String {
     val n = name.uppercase()
+    val i = id.lowercase()
+    
     return when {
-        n.contains("BATTERY") || n.contains("BMS") || n.contains("CHARGE") || n.contains("DISCHARGE") -> "Battery"
-        n.contains("PV") || n.contains("SOLAR") -> "PV / Solar"
-        n.contains("GRID") || n.contains("AC") || n.contains("LINE") -> "Grid / AC"
+        // 1. Primary check: Use ID prefix if available from server
+        i.startsWith("bat") -> "Battery"
+        i.startsWith("pv") -> "PV / Solar"
+        i.startsWith("out") || i.startsWith("los") -> "Output"
+        
+        // 2. Secondary check: Name keywords (Broadened to catch typos like "CHARGIN")
+        n.contains("BATTERY") || n.contains("BMS") || n.contains("CHARG") || 
+        n.contains("DISCHARG") || n.contains("SOC") || n.contains("BATT") ||
+        n.contains("BACK TO GRID") || n.contains("TO GRID") || 
+        n.contains("BACK TO DIS") -> "Battery"
+        
+        n.contains("PV") || n.contains("SOLAR") || n.contains("SUN") -> "PV / Solar"
+        
         n.contains("OUTPUT") || n.contains("LOAD") -> "Output"
-        n.contains("SYSTEM") || n.contains("MODE") || n.contains("PRIORITY") || n.contains("BUZZER") -> "System"
-        else -> "General"
+        
+        // 3. System fallback
+        else -> "System"
     }
 }
 
@@ -157,7 +170,7 @@ fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: 
                 name = name,
                 unit = f.optString("unit").takeIf { it.isNotEmpty() },
                 options = options,
-                category = categorizeSetting(name),
+                category = categorizeSetting(name, id),
                 currentValue = displayValue
             ))
         }
@@ -344,8 +357,7 @@ fun InverterSettingsContent(
                 "PV / Solar" -> 1
                 "Output" -> 2
                 "Battery" -> 3
-                "Grid / AC" -> 4
-                else -> 5
+                else -> 4
             }
         }
     }
