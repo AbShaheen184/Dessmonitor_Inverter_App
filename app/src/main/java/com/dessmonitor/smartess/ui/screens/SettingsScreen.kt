@@ -1,6 +1,7 @@
 package com.dessmonitor.smartess.ui.screens
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +80,7 @@ fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: 
             val name = f.optString("name")
             val options = mutableMapOf<String, String>()
             var selectedFromItems: String? = null
+            var rawVal = individualValues?.get(id) ?: ""
             
             val itemArray = f.optJSONArray("item")
             if (itemArray != null) {
@@ -106,14 +109,24 @@ fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: 
                     if (item.optInt("sel") == 1 || item.optInt("selected") == 1 || 
                         item.optString("sel") == "1" || item.optBoolean("selected")) {
                         selectedFromItems = v
+                        // If the server explicitly marks an item as selected, 
+                        // ensure rawVal matches this item's key.
+                        if (rawVal.isEmpty() || rawVal == "null") {
+                            rawVal = k
+                        }
                     }
                 }
             }
             
-            var rawVal = individualValues?.get(id) ?: ""
-            if (rawVal.isEmpty()) {
+            if (rawVal.isEmpty() || rawVal == "null") {
                 rawVal = repository.getCachedSettingsValue(id) ?: ""
             }
+            
+            // Initial normalization: remove .0 from numeric keys if needed
+            if (rawVal.endsWith(".0")) {
+                rawVal = rawVal.substring(0, rawVal.length - 2)
+            }
+
             if (rawVal.isEmpty()) {
                 rawVal = f.optString("val", "").ifEmpty { 
                     f.optString("value", "").ifEmpty { 
@@ -134,6 +147,13 @@ fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: 
                 }
                 if (telemetry != null) {
                     rawVal = telemetry.value.toString().trim()
+                }
+            }
+
+            // Normalization for matching: if rawVal is a display value, find its key
+            if (options.isNotEmpty() && !options.containsKey(rawVal)) {
+                options.entries.find { it.value.equals(rawVal, ignoreCase = true) }?.let {
+                    rawVal = it.key
                 }
             }
 
@@ -463,14 +483,24 @@ fun InverterSettingsContent(
                     }
                 }
                 items(filteredFields) { field ->
+                    val context = LocalContext.current
                     SettingsItem(field = field) { newValue ->
                         // Optimistically update the UI value immediately
                         val newDisplay = field.options[newValue] ?: newValue
+                        val oldFields = fields
                         fields = fields.map { f ->
                             if (f.id == field.id) f.copy(currentValue = newDisplay) else f
                         }
                         scope.launch {
                             repository.setControlValue(device, field.id, newValue)
+                                .onSuccess {
+                                    Toast.makeText(context, "✅ Setting updated successfully", Toast.LENGTH_SHORT).show()
+                                }
+                                .onFailure { e ->
+                                    Toast.makeText(context, "❌ Failed: ${e.message}", Toast.LENGTH_LONG).show()
+                                    // Rollback on failure
+                                    fields = oldFields
+                                }
                         }
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
