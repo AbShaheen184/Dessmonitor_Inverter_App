@@ -171,7 +171,8 @@ fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: 
                 unit = f.optString("unit").takeIf { it.isNotEmpty() },
                 options = options,
                 category = categorizeSetting(name, id),
-                currentValue = displayValue
+                currentValue = displayValue,
+                rawValue = rawVal
             ))
         }
     }
@@ -662,7 +663,8 @@ data class ControlField(
     val unit: String?,
     val options: Map<String, String>,
     val category: String,
-    val currentValue: String? = null
+    val currentValue: String? = null,
+    val rawValue: String? = null
 )
 
 @Composable
@@ -706,18 +708,35 @@ fun SettingsItem(field: ControlField, onValueChange: (String) -> Unit) {
                 onDismissRequest = { showDialog = false },
                 title = { Text("Set ${field.name}") },
                 text = {
-                    Box(modifier = Modifier.heightIn(max = 300.dp)) {
+                    Box(modifier = Modifier.heightIn(max = 400.dp)) {
                         LazyColumn {
                             field.options.forEach { (key, value) ->
                                 item {
-                                    TextButton(
-                                        onClick = {
-                                            onValueChange(key)
-                                            showDialog = false
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
+                                    val isSelected = field.rawValue == key
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                onValueChange(key)
+                                                showDialog = false
+                                            }
+                                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(value, modifier = Modifier.fillMaxWidth())
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = {
+                                                onValueChange(key)
+                                                showDialog = false
+                                            }
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = value,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
                                     }
                                 }
                             }
@@ -729,7 +748,7 @@ fun SettingsItem(field: ControlField, onValueChange: (String) -> Unit) {
                 }
             )
         } else {
-            var textValue by remember { mutableStateOf("") }
+            var textValue by remember { mutableStateOf(field.rawValue ?: "") }
             AlertDialog(
                 onDismissRequest = { showDialog = false },
                 title = { Text("Set ${field.name}") },
@@ -738,7 +757,8 @@ fun SettingsItem(field: ControlField, onValueChange: (String) -> Unit) {
                         value = textValue,
                         onValueChange = { textValue = it },
                         label = { Text("Value ${field.unit ?: ""}") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
                     )
                 },
                 confirmButton = {
