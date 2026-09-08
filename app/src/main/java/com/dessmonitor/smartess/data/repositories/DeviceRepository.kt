@@ -113,6 +113,10 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
     fun isCategorySynced(category: String): Boolean = syncedCategories.contains(category)
 
+    fun clearSyncedCategories() {
+        syncedCategories.clear()
+    }
+
     fun updateSettingsCache(fieldId: String, value: String) {
         settingsSessionCache[fieldId] = value
         prefs.edit().putString("settings_cache", gson.toJson(settingsSessionCache)).apply()
@@ -232,12 +236,17 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
         // Periodic Sync (Every 5 minutes)
         scope.launch {
+            // Wait a tiny bit for init to complete
+            delay(500L)
+            if (isLoggedIn.value == true) {
+                loadDevices()
+            }
             while (true) {
+                delay(5.minutes)
                 if (isLoggedIn.value == true) {
                     Log.d("DeviceRepository", "Performing periodic sync...")
                     loadDevices()
                 }
-                delay(5.minutes)
             }
         }
     }
@@ -251,7 +260,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
             if (success) {
                 prefs.edit().putString("username", username).putString("password", password).putString("company_key", companyKey).apply()
                 _isLoggedIn.postValue(true)
-                scope.launch { loadDevices() }
+                loadDevices()
                 Result.success(true)
             } else {
                 Result.failure(Exception("Invalid credentials"))
@@ -414,10 +423,12 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                         collectorPairs.flatMap { (collector, devResponse) ->
                             val pn = collector.optString("pn")
                             devResponse.map { devJson ->
+                                Log.d("DeviceRepository", "Found device in collector ${collector.optString("pn")}: $devJson")
                                 async {
                                     val sn = devJson.optString("sn")
                                     val devcode = devJson.optInt("devcode", 0)
-                                    val devaddr = devJson.optInt("devaddr", 0)
+                                    val devaddrRaw = devJson.optInt("devaddr", 0)
+                                    val devaddr = if (devaddrRaw == 0) 1 else devaddrRaw
                                     
                                     val lastDataDeferred = async { try { api.queryDeviceLastData(pn, devcode, devaddr, sn) } catch (_: Exception) { emptyList() } }
                                     val paramsDeferred = async { try { api.queryDeviceParameters(pn, devcode, devaddr, sn) } catch (_: Exception) { emptyList() } }
@@ -439,7 +450,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                                         .map { it.copy(value = transformValue(devcode, it.title, it.value), title = mapSensorTitle(devcode, it.title)) }
                                     
                                     val isOnline = determineOnlineStatus(devJson, deviceSummary, collector, lastData)
-                                    Log.d("DeviceRepository", "Device $sn online status: isOnline=$isOnline (devStatus=${devJson.opt("status")}, devLost=${devJson.opt("lost")}, summaryStatus=${deviceSummary?.opt("status")}, summaryLost=${deviceSummary?.opt("lost")})")
+                                    Log.d("DeviceRepository", "Created DeviceInfo: SN=$sn, PN=$pn, DevCode=$devcode, addr=$devaddr, isOnline=$isOnline")
                                     
                                     val timestampStr = mergedData.find { it.title.equals("Timestamp", ignoreCase = true) || it.title.equals("Date Time", ignoreCase = true) }?.value?.toString()
                                     val lastDataTime = try {
@@ -475,6 +486,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                 }
             }
 
+            Log.d("DeviceRepository", "Loaded ${allDevices.size} devices total")
             _devices.postValue(allDevices)
             _lastUpdateTime.postValue(System.currentTimeMillis())
             prefs.edit().putString("cached_devices", gson.toJson(allDevices)).apply()
@@ -695,27 +707,48 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
     suspend fun getControlFields(device: DeviceInfo, forceRefresh: Boolean = false): Result<JSONObject> = withContext(Dispatchers.IO) {
         val sn = device.serialNumber
+        val pn = device.pn
+        val devcode = device.devcode
+        val addr = if (device.devaddr == null || device.devaddr == 0) 1 else device.devaddr
+        
+        Log.d("DeviceRepository", "getControlFields for SN: $sn, PN: $pn, DevCode: $devcode, Addr: $addr")
+        
+        if (pn == null || devcode == null) {
+            Log.e("DeviceRepository", "Cannot fetch control fields: PN or DevCode is null")
+            return@withContext Result.failure(Exception("Device identifier missing (PN/DevCode). SN: $sn"))
+        }
+        
         if (!forceRefresh && cachedControlFieldsMap.containsKey(sn)) {
+            Log.d("DeviceRepository", "Returning cached control fields for $sn")
             return@withContext Result.success(cachedControlFieldsMap[sn]!!)
         }
         try {
-            val json = api.queryDeviceControlFields(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber)
+            val json = api.queryDeviceControlFields(pn, devcode, addr, sn)
             cachedControlFieldsMap[sn] = json
             Result.success(json)
         }
         catch (e: CancellationException) { throw e }
-        catch (e: Exception) { Result.failure(e) }
+        catch (e: Exception) { 
+            Log.e("DeviceRepository", "getControlFields failed for $sn", e)
+            Result.failure(e) 
+        }
     }
 
     suspend fun getControlValue(device: DeviceInfo, fieldId: String): Result<JSONObject> = withContext(Dispatchers.IO) {
-        try { Result.success(api.queryDeviceCtrlValue(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber, fieldId)) }
+        val pn = device.pn ?: return@withContext Result.failure(Exception("Device missing PN"))
+        val devcode = device.devcode ?: return@withContext Result.failure(Exception("Device missing devcode"))
+        val addr = if (device.devaddr == null || device.devaddr == 0) 1 else device.devaddr
+        try { Result.success(api.queryDeviceCtrlValue(pn, devcode, addr, device.serialNumber, fieldId)) }
         catch (e: CancellationException) { throw e }
         catch (e: Exception) { Result.failure(e) }
     }
 
     suspend fun setControlValue(device: DeviceInfo, fieldId: String, value: String): Result<Boolean> = withContext(Dispatchers.IO) {
+        val pn = device.pn ?: return@withContext Result.failure(Exception("Device missing PN"))
+        val devcode = device.devcode ?: return@withContext Result.failure(Exception("Device missing devcode"))
+        val addr = if (device.devaddr == null || device.devaddr == 0) 1 else device.devaddr
         try { 
-            api.setDeviceControlValue(device.pn!!, device.devcode!!, device.devaddr ?: 1, device.serialNumber, fieldId, value)
+            api.setDeviceControlValue(pn, devcode, addr, device.serialNumber, fieldId, value)
             updateSettingsCache(fieldId, value)
             cachedControlFieldsMap.remove(device.serialNumber)
             Result.success(true) 

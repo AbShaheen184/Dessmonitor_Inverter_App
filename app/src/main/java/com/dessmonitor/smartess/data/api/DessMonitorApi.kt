@@ -4,6 +4,8 @@ import android.util.Log
 import com.dessmonitor.smartess.data.models.DataPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -21,6 +23,7 @@ class DessMonitorAPI(
     var token: String? = null
     var secret: String? = null
     private var tokenExpire: Long? = null
+    private val authMutex = Mutex()
 
     private val client = OkHttpClient.Builder()
         .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
@@ -66,13 +69,25 @@ class DessMonitorAPI(
         params?.forEach { (key, value) ->
             sb.append('&').append(key).append('=').append(value)
         }
+        if (params?.containsKey("source") != true) sb.append("&source=1")
+        if (params?.containsKey("i18n") != true) sb.append("&i18n=en_US")
+        if (params?.containsKey("lang") != true) sb.append("&lang=en_US")
+        if (action != "authSource") {
+            if (params?.containsKey("_app_client_") != true) sb.append("&_app_client_=android")
+            if (params?.containsKey("_app_id_") != true) sb.append("&_app_id_=com.eybond.smartclient.ess")
+            if (params?.containsKey("_app_version_") != true) sb.append("&_app_version_=3.44.2.0")
+        }
         return sb.toString()
     }
 
     private suspend fun makeRequest(action: String, params: Map<String, Any>? = null): JSONObject = withContext(Dispatchers.IO) {
         if (action != "authSource" && isTokenExpired()) {
-            Log.d(TAG, "Token expired, re-authenticating...")
-            authenticate()
+            authMutex.withLock {
+                if (isTokenExpired()) {
+                    Log.d(TAG, "Token expired, re-authenticating...")
+                    authenticate()
+                }
+            }
         }
 
         val salt = System.currentTimeMillis().toString()
@@ -88,8 +103,10 @@ class DessMonitorAPI(
         }
         urlBuilder.append(actionString)
 
+        val url = urlBuilder.toString()
+        Log.d(TAG, "Request URL: $url")
         val request = Request.Builder()
-            .url(urlBuilder.toString())
+            .url(url)
             .build()
 
         try {
@@ -100,7 +117,7 @@ class DessMonitorAPI(
                     throw IOException("HTTP $code")
                 }
                 val responseBody = response.body?.string() ?: throw IOException("Empty response body")
-                Log.d(TAG, "API response [$action]: $responseBody")
+                Log.e("CRITICAL_DEBUG", "API response [$action]: $responseBody")
                 val json = JSONObject(responseBody)
                 val err = json.optInt("err", 0)
                 if (err != 0) {
@@ -132,10 +149,7 @@ class DessMonitorAPI(
             val authParams = mapOf(
                 "usr" to username,
                 "company-key" to companyKey,
-                "source" to "1",
-                "_app_client_" to "web",
-                "_app_id_" to "ha-dessmonitor",
-                "_app_version_" to "2.2.0"
+                "source" to "1"
             )
 
             val response = makeRequest("authSource", authParams)
@@ -184,24 +198,32 @@ class DessMonitorAPI(
             "devcode" to devcode,
             "devaddr" to devaddr,
             "sn" to sn,
-            "i18n" to "en"
+            "i18n" to "en_US"
         )
-        val response = try { makeRequest("queryDeviceLastData", params) } catch (_: Exception) { return@withContext emptyList() }
-        val dat = response.optJSONObject("dat")
-        val datArray = dat?.optJSONArray("list") ?: dat?.optJSONArray("data") ?: response.optJSONArray("dat")
-        if (datArray == null) return@withContext emptyList()
-
-        val list = ArrayList<DataPoint>(datArray.length())
-        for (i in 0 until datArray.length()) {
-            val item = datArray.getJSONObject(i)
-            val title = listOf("title", "name", "label", "des", "desc").map { item.optString(it) }.firstOrNull { it.isNotEmpty() } ?: ""
-            val value = listOf("val", "value", "v").map { item.opt(it) }.firstOrNull { it != null } ?: ""
-            val unit = item.optString("unit")
-            if (title.isNotEmpty()) {
-                list.add(DataPoint(title = title, value = value, unit = if (unit.isEmpty()) null else unit))
+        val actions = listOf("queryDeviceLastData", "queryDeviceDataEs", "webQueryDeviceDataEs")
+        for (action in actions) {
+            try {
+                val response = makeRequest(action, params)
+                val dat = response.optJSONObject("dat")
+                val datArray = dat?.optJSONArray("list") ?: dat?.optJSONArray("data") ?: response.optJSONArray("dat")
+                if (datArray != null && datArray.length() > 0) {
+                    val list = ArrayList<DataPoint>(datArray.length())
+                    for (i in 0 until datArray.length()) {
+                        val item = datArray.getJSONObject(i)
+                        val title = listOf("title", "name", "label", "des", "desc").map { item.optString(it) }.firstOrNull { it.isNotEmpty() } ?: ""
+                        val value = listOf("val", "value", "v").map { item.opt(it) }.firstOrNull { it != null } ?: ""
+                        val unit = item.optString("unit")
+                        if (title.isNotEmpty()) {
+                            list.add(DataPoint(title = title, value = value, unit = if (unit.isEmpty()) null else unit))
+                        }
+                    }
+                    return@withContext list
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Action $action failed: ${e.message}")
             }
         }
-        list
+        emptyList()
     }
 
     suspend fun queryDeviceParameters(pn: String, devcode: Int, devaddr: Int, sn: String): List<DataPoint> = withContext(Dispatchers.IO) {
@@ -245,7 +267,7 @@ class DessMonitorAPI(
             "devaddr" to devaddr,
             "sn" to sn,
             "date" to date,
-            "i18n" to "en"
+            "i18n" to "en_US"
         )
         
         val actions = if (parameter != null) {
@@ -309,7 +331,32 @@ class DessMonitorAPI(
             "i18n" to "en_US",
             "source" to "1"
         )
-        makeRequest("queryDeviceCtrlField", params)
+        val actions = listOf(
+            "queryDeviceCtrlField", 
+            "webQueryDeviceCtrlField", 
+            "queryDeviceControlField",
+            "queryDeviceCtrlStrategy",
+            "webQueryDeviceCtrlStrategy",
+            "queryDeviceCtrlFieldEs",
+            "webQueryDeviceCtrlFieldEs",
+            "webQueryDeviceCtrlStrategy"
+        )
+        var lastError: Exception? = null
+
+        Log.d(TAG, "queryDeviceControlFields for PN: $pn, DevCode: $devcode, SN: $sn, Addr: $devaddr")
+        for (action in actions) {
+            try {
+                val res = makeRequest(action, params)
+                Log.d(TAG, "Action $action response: $res")
+                if ((res.optJSONObject("dat")?.optJSONArray("field")?.length() ?: 0) > 0) {
+                    return@withContext res
+                }
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "Action $action failed: ${e.message}")
+            }
+        }
+        throw lastError ?: IOException("Failed to fetch control fields")
     }
 
     suspend fun queryDeviceCtrlValue(pn: String, devcode: Int, devaddr: Int, sn: String, fieldId: String): JSONObject = withContext(Dispatchers.IO) {
@@ -322,7 +369,21 @@ class DessMonitorAPI(
             "i18n" to "en_US",
             "source" to "1"
         )
-        makeRequest("queryDeviceCtrlValue", params)
+        val actions = listOf("queryDeviceCtrlValue", "webQueryDeviceCtrlValue", "queryDeviceControlValue", "queryDeviceCtrlValueEs")
+        var lastError: Exception? = null
+
+        for (action in actions) {
+            try {
+                val res = makeRequest(action, params)
+                if (res.has("dat")) {
+                    return@withContext res
+                }
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "Action $action failed: ${e.message}")
+            }
+        }
+        throw lastError ?: IOException("Failed to fetch control value")
     }
 
     suspend fun queryDeviceAlarms(pn: String, devcode: Int, devaddr: Int, sn: String, page: Int = 0, startDate: String? = null, endDate: String? = null): JSONObject = withContext(Dispatchers.IO) {
@@ -334,7 +395,7 @@ class DessMonitorAPI(
             "page" to page,
             "pagesize" to 50,
             "mode" to "strict",
-            "i18n" to "en"
+            "i18n" to "en_US"
         )
         if (startDate != null) params["sdate"] = startDate
         if (endDate != null) params["edate"] = endDate
@@ -353,6 +414,16 @@ class DessMonitorAPI(
             "i18n" to "en_US",
             "source" to "1"
         )
-        makeRequest("ctrlDevice", params)
+        val actions = listOf("ctrlDevice", "webCtrlDevice")
+        var lastError: Exception? = null
+        for (action in actions) {
+            try {
+                return@withContext makeRequest(action, params)
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "Action $action failed: ${e.message}")
+            }
+        }
+        throw lastError ?: IOException("Failed to set control value")
     }
 }

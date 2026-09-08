@@ -1,5 +1,6 @@
 package com.dessmonitor.smartess.ui.screens
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
@@ -51,6 +53,7 @@ private fun categorizeSetting(name: String): String {
 
 // Public helper function for processing fields across components
 fun parseControlFields(json: JSONObject, currentDevice: DeviceInfo, repository: DeviceRepository, individualValues: Map<String, String>? = null): List<ControlField> {
+    Log.d("SettingsScreen", "Parsing control fields for ${currentDevice.serialNumber}. JSON: $json")
     val list = mutableListOf<ControlField>()
     val dat = json.optJSONObject("dat")
     val fieldsArray = dat?.optJSONArray("field")
@@ -256,7 +259,9 @@ fun InverterSettingsContent(
     device: DeviceInfo,
     initialCategory: String? = null
 ) {
+    Log.d("SettingsScreen", "InverterSettingsContent for Device: ${device.serialNumber}, PN: ${device.pn}, DevCode: ${device.devcode}, Addr: ${device.devaddr}")
     var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
     var isSyncing by remember { mutableStateOf(false) }
     var fields by remember { mutableStateOf<List<ControlField>>(emptyList()) }
     var selectedCategory by remember { mutableStateOf<String?>(initialCategory) }
@@ -266,16 +271,67 @@ fun InverterSettingsContent(
         return parseControlFields(json, currentDevice, repository, individualValues)
     }
 
-    // Load fields once on mount (fast and cached in repository)
-    LaunchedEffect(device) {
-        repository.getControlFields(device).onSuccess { json ->
-            fields = processFields(json, device)
-            if (selectedCategory == null && fields.isNotEmpty()) {
-                selectedCategory = fields.first().category
+    fun loadFields() {
+        Log.d("SettingsScreen", "loadFields called for ${device.serialNumber}")
+        isLoading = true
+        error = null
+        scope.launch {
+            repository.getControlFields(device).onSuccess { json ->
+                Log.d("SettingsScreen", "getControlFields success: $json")
+                fields = processFields(json, device)
+                Log.d("SettingsScreen", "Parsed ${fields.size} fields")
+                if (fields.isEmpty()) {
+                    error = "No settings fields returned from server for this device"
+                } else if (selectedCategory == null) {
+                    selectedCategory = fields.first().category
+                }
+                isLoading = false
             }
-            isLoading = false
-        }.onFailure { 
-            isLoading = false 
+            .onFailure { e ->
+                error = e.message ?: "Failed to load inverter settings"
+                isLoading = false
+            }
+        }
+    }
+
+    // Load fields once on mount
+    LaunchedEffect(device) {
+        loadFields()
+    }
+
+    // Load live values for fields in the selected category
+    LaunchedEffect(selectedCategory) {
+        if (selectedCategory != null && !repository.isCategorySynced(selectedCategory!!)) {
+            isSyncing = true
+            val categoryFields = fields.filter { it.category == selectedCategory }
+            
+            coroutineScope {
+                val deferredValues = categoryFields.map { field ->
+                    async {
+                        val res = repository.getControlValue(device, field.id)
+                        if (res.isSuccess) {
+                            val dat = res.getOrThrow().optJSONObject("dat")
+                            val v = dat?.optString("val") ?: dat?.optString("value") ?: ""
+                            field.id to v
+                        } else {
+                            field.id to ""
+                        }
+                    }
+                }
+                val valueMap = deferredValues.awaitAll().filter { it.second.isNotEmpty() }.toMap()
+                
+                if (valueMap.isNotEmpty()) {
+                    fields = fields.map { field ->
+                        val newValue = valueMap[field.id]
+                        if (!newValue.isNullOrEmpty()) {
+                            val displayValue = field.options[newValue] ?: newValue
+                            field.copy(currentValue = displayValue)
+                        } else field
+                    }
+                }
+            }
+            repository.markCategorySynced(selectedCategory!!)
+            isSyncing = false
         }
     }
 
@@ -301,6 +357,18 @@ fun InverterSettingsContent(
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
+        }
+    } else if (error != null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                Icon(Icons.Default.ErrorOutline, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(16.dp))
+                Text(error!!, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = { loadFields() }) {
+                    Text("Retry")
+                }
+            }
         }
     } else {
         Row(modifier = Modifier.fillMaxSize()) {
@@ -356,6 +424,7 @@ fun InverterSettingsContent(
                                 IconButton(
                                     onClick = {
                                         isSyncing = true
+                                        repository.clearSyncedCategories()
                                         scope.launch {
                                             repository.getControlFields(device, forceRefresh = true).onSuccess { json ->
                                                 fields = processFields(json, device)
@@ -388,6 +457,15 @@ fun InverterSettingsContent(
                         }
                     }
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
+                item {
+                    Text(
+                        text = "Device: ${device.serialNumber}\nPN: ${device.pn ?: "null"}\nCode: ${device.devcode ?: "null"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(16.dp)
+                    )
                 }
                 item { Spacer(modifier = Modifier.height(110.dp)) }
             }
