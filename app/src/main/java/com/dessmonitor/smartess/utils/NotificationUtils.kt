@@ -9,7 +9,12 @@ object NotificationUtils {
     private const val CHANNEL_ID = "automation_notifications"
     private const val CHANNEL_NAME = "Automation Alerts"
 
-    fun sendNotification(context: Context, title: String, message: String) {
+    fun sendNotification(context: Context, title: String, message: String, forced: Boolean = false) {
+        val prefs = context.getSharedPreferences("smartess_prefs", Context.MODE_PRIVATE)
+        val enabled = prefs.getBoolean("enable_notifications", true)
+        
+        if (!enabled && !forced) return
+
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         val channel = NotificationChannel(

@@ -2,6 +2,7 @@ package com.dessmonitor.smartess.data.repositories
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -13,10 +14,19 @@ import com.dessmonitor.smartess.data.models.DeviceInfo
 import com.dessmonitor.smartess.data.models.AutomationRule
 import com.dessmonitor.smartess.data.models.ComparisonOperator
 import com.dessmonitor.smartess.data.models.RightOperandType
+import com.dessmonitor.smartess.utils.NotificationUtils
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 import org.json.JSONObject
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 import kotlin.time.Duration.Companion.minutes
 
@@ -50,6 +60,21 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
     private val _selectedPaletteIndex = MutableLiveData<Int>(prefs.getInt("selected_palette_index", 0))
     val selectedPaletteIndex: LiveData<Int> = _selectedPaletteIndex
+
+    // App Notifications
+    private val _enableNotifications = MutableLiveData<Boolean>(prefs.getBoolean("enable_notifications", true))
+    val enableNotifications: LiveData<Boolean> = _enableNotifications
+
+    private val _enableAlarmNotifications = MutableLiveData<Boolean>(prefs.getBoolean("enable_alarm_notifications", true))
+    val enableAlarmNotifications: LiveData<Boolean> = _enableAlarmNotifications
+
+    private val _enableBatteryAlarm = MutableLiveData<Boolean>(prefs.getBoolean("enable_battery_alarm", false))
+    val enableBatteryAlarm: LiveData<Boolean> = _enableBatteryAlarm
+
+    private val _batteryAlarmThreshold = MutableLiveData<Int>(prefs.getInt("battery_alarm_threshold", 20))
+    val batteryAlarmThreshold: LiveData<Int> = _batteryAlarmThreshold
+
+    private var batteryAlarmTriggered = prefs.getBoolean("battery_alarm_triggered", false)
 
     private val _customPalette = MutableLiveData<List<String>>(
         gson.fromJson(prefs.getString("custom_palette", null), object : TypeToken<List<String>>() {}.type) 
@@ -148,6 +173,30 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     fun setTrendsDays(days: Int) {
         _trendsDays.value = days
         prefs.edit().putInt("trends_days", days).apply()
+    }
+
+    fun setBatteryAlarmThreshold(threshold: Int) {
+        _batteryAlarmThreshold.value = threshold
+        prefs.edit().putInt("battery_alarm_threshold", threshold).apply()
+    }
+
+    fun setEnableNotifications(enabled: Boolean) {
+        _enableNotifications.value = enabled
+        prefs.edit().putBoolean("enable_notifications", enabled).apply()
+    }
+
+    fun setEnableAlarmNotifications(enabled: Boolean) {
+        _enableAlarmNotifications.value = enabled
+        prefs.edit().putBoolean("enable_alarm_notifications", enabled).apply()
+    }
+
+    fun setEnableBatteryAlarm(enabled: Boolean) {
+        _enableBatteryAlarm.value = enabled
+        prefs.edit().putBoolean("enable_battery_alarm", enabled).apply()
+        if (!enabled) {
+            batteryAlarmTriggered = false
+            prefs.edit().putBoolean("battery_alarm_triggered", false).apply()
+        }
     }
 
     fun showSensorInTrends(sensor: String, days: Int = 1) {
@@ -783,96 +832,244 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     }
 
     suspend fun evaluateAutomations(context: Context) = withContext(Dispatchers.IO) {
-        val currentRules = automationRules.value ?: return@withContext
-        if (currentRules.none { it.isEnabled }) return@withContext
+        val currentRules = automationRules.value ?: emptyList()
+        val globalNotificationsEnabled = _enableNotifications.value ?: true
+        val alarmNotificationsEnabled = _enableAlarmNotifications.value ?: true
+        val batteryAlarmEnabled = _enableBatteryAlarm.value ?: false
+        
+        if (currentRules.none { it.isEnabled } && !alarmNotificationsEnabled && !batteryAlarmEnabled) return@withContext
 
         // Fetch fresh data
         val devicesResult = loadDevices()
         val activeDevice = devicesResult.getOrNull()?.firstOrNull() ?: return@withContext
         
-        // Build a lookup map for faster parameter access
-        val dataPointMap = activeDevice.dataPoints.associateBy { it.title.trim().lowercase() }
-        
-        val updatedRules = currentRules.toMutableList()
-        var rulesChanged = false
-        
-        for (i in updatedRules.indices) {
-            val rule = updatedRules[i]
-            if (!rule.isEnabled) continue
+        // 1. Check for Inverter Alarms
+        if (globalNotificationsEnabled && alarmNotificationsEnabled) {
+            val alarmsResult = getAlarms(activeDevice)
+            alarmsResult.onSuccess { alarmJsons ->
+                // Look for active (status=true) alarms that hasn't been notified yet.
+                // We'll use a simple strategy: if it's within the last 10 minutes, notify.
+                alarmJsons.forEach { json ->
+                    val isStatusActive = json.optBoolean("status", false)
+                    val title = json.optString("title").ifEmpty { json.optString("name") }
+                    val desc = json.optString("desc").ifEmpty { json.optString("descx") }
+                    val ts = json.optString("gts")
+                    
+                    if (isStatusActive && ts.isNotEmpty()) {
+                        try {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                            val alarmTime = sdf.parse(ts)?.time ?: 0L
+                            val now = System.currentTimeMillis()
+                            // If alarm happened in last 15 mins, notify
+                            if (now - alarmTime < 15 * 60 * 1000) {
+                                val alarmKey = "notified_alarm_${activeDevice.serialNumber}_${ts}"
+                                if (!prefs.getBoolean(alarmKey, false)) {
+                                    NotificationUtils.sendNotification(
+                                        context, 
+                                        "Inverter Alarm: $title", 
+                                        desc,
+                                        forced = true
+                                    )
+                                    prefs.edit().putBoolean(alarmKey, true).apply()
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+        }
+
+        // 2. Check for Battery Alarm
+        if (globalNotificationsEnabled && batteryAlarmEnabled) {
+            val socStr = activeDevice.dataPoints.find { 
+                it.title.equals("SOC", true) || it.title.contains("Battery Capacity", true) 
+            }?.value?.toString()?.replace("%", "")?.trim()
             
-            // Helper to get numeric telemetry value using the map
-            fun getVal(title: String): Double? {
-                val normalizedTitle = title.trim().lowercase()
-                val dp = dataPointMap[normalizedTitle] ?: activeDevice.dataPoints.find { 
-                    it.title.trim().contains(title, ignoreCase = true) 
-                }
-                return dp?.value?.toString()?.toDoubleOrNull()
-            }
-
-            val leftVal = getVal(rule.leftParameter) ?: continue
-            val rightVal = if (rule.rightOperandType == RightOperandType.CUSTOM_VALUE) {
-                rule.rightCustomValue
-            } else {
-                rule.rightParameter?.let { getVal(it) } ?: continue
-            }
-            // ... (rest of the logic)
-
-            val conditionMet = when (rule.operator) {
-                ComparisonOperator.EQUAL -> Math.abs(leftVal - rightVal) < 0.001
-                ComparisonOperator.LESS_THAN_OR_EQUAL -> leftVal <= rightVal
-                ComparisonOperator.GREATER_THAN_OR_EQUAL -> leftVal >= rightVal
-                ComparisonOperator.LESS_THAN -> leftVal < rightVal
-                ComparisonOperator.GREATER_THAN -> leftVal > rightVal
-            }
-
-            if (conditionMet) {
-                // If condition is met but it was already triggered, skip triggering again
-                if (rule.isTriggered) continue
-
-                val actionsTriggered = mutableListOf<String>()
-
-                // Action 1: Inverter Setting Change
-                if (rule.enableInverterSettingAction && rule.targetSettingId != null && rule.targetSettingValue != null) {
-                    val result = setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
-                    if (result.isSuccess) {
-                        actionsTriggered.add("Setting: ${rule.targetSettingName} → ${rule.targetSettingValueDisplay}")
+            val soc = socStr?.toDoubleOrNull()
+            val threshold = _batteryAlarmThreshold.value ?: 20
+            
+            if (soc != null) {
+                if (soc <= threshold) {
+                    if (!batteryAlarmTriggered) {
+                        NotificationUtils.sendNotification(
+                            context,
+                            "Battery Low Alert",
+                            "Battery level is at ${soc.toInt()}%, which is below your $threshold% threshold.",
+                            forced = true
+                        )
+                        batteryAlarmTriggered = true
+                        prefs.edit().putBoolean("battery_alarm_triggered", true).apply()
+                    }
+                } else {
+                    // Reset trigger when battery goes back up
+                    if (batteryAlarmTriggered) {
+                        batteryAlarmTriggered = false
+                        prefs.edit().putBoolean("battery_alarm_triggered", false).apply()
                     }
                 }
+            }
+        }
 
-                // Action 2: Mobile Notification
-                if (rule.enableNotificationAction) {
-                    var formattedMessage = rule.notificationMessageTemplate ?: "Condition met for ${rule.name}"
-                    activeDevice.dataPoints.forEach { dp ->
-                        formattedMessage = formattedMessage.replace("{${dp.title}}", "${dp.value} ${dp.unit ?: ""}".trim(), ignoreCase = true)
-                    }
-                    actionsTriggered.add("Mobile Notification")
-                    com.dessmonitor.smartess.utils.NotificationUtils.sendNotification(
-                        context = context,
-                        title = rule.notificationTitle ?: rule.name,
-                        message = formattedMessage
-                    )
-                }
+        // 3. Evaluate Custom Automation Rules
+        if (currentRules.any { it.isEnabled }) {
+            // Build a lookup map for faster parameter access
+            val dataPointMap = activeDevice.dataPoints.associateBy { it.title.trim().lowercase() }
+            
+            val updatedRules = currentRules.toMutableList()
+            var rulesChanged = false
+            
+            for (i in updatedRules.indices) {
+                val rule = updatedRules[i]
+                if (!rule.isEnabled) continue
                 
-                if (actionsTriggered.isNotEmpty()) {
-                    Log.d("DeviceRepository", "Automation triggered: ${rule.name}. Actions: ${actionsTriggered.joinToString(", ")}")
-                    // Mark as triggered so it doesn't fire again until condition is reset
-                    updatedRules[i] = rule.copy(isTriggered = true, lastTriggeredAt = System.currentTimeMillis())
-                    rulesChanged = true
+                // Helper to get numeric telemetry value using the map
+                fun getVal(title: String): Double? {
+                    val normalizedTitle = title.trim().lowercase()
+                    val dp = dataPointMap[normalizedTitle] ?: activeDevice.dataPoints.find { 
+                        it.title.trim().contains(title, ignoreCase = true) 
+                    }
+                    return dp?.value?.toString()?.toDoubleOrNull()
                 }
-            } else {
-                // Condition is NOT met. If it was previously triggered, reset it so it can trigger again next time
-                if (rule.isTriggered) {
-                    Log.d("DeviceRepository", "Automation reset: ${rule.name}. Condition no longer met.")
-                    updatedRules[i] = rule.copy(isTriggered = false)
-                    rulesChanged = true
+
+                val leftVal = getVal(rule.leftParameter) ?: continue
+                val rightVal = if (rule.rightOperandType == RightOperandType.CUSTOM_VALUE) {
+                    rule.rightCustomValue
+                } else {
+                    rule.rightParameter?.let { getVal(it) } ?: continue
+                }
+
+                val conditionMet = when (rule.operator) {
+                    ComparisonOperator.EQUAL -> Math.abs(leftVal - rightVal) < 0.001
+                    ComparisonOperator.LESS_THAN_OR_EQUAL -> leftVal <= rightVal
+                    ComparisonOperator.GREATER_THAN_OR_EQUAL -> leftVal >= rightVal
+                    ComparisonOperator.LESS_THAN -> leftVal < rightVal
+                    ComparisonOperator.GREATER_THAN -> leftVal > rightVal
+                }
+
+                if (conditionMet) {
+                    // If condition is met but it was already triggered, skip triggering again
+                    if (rule.isTriggered) continue
+
+                    val actionsTriggered = mutableListOf<String>()
+
+                    // Action 1: Inverter Setting Change
+                    if (rule.enableInverterSettingAction && rule.targetSettingId != null && rule.targetSettingValue != null) {
+                        val result = setControlValue(activeDevice, rule.targetSettingId, rule.targetSettingValue)
+                        if (result.isSuccess) {
+                            actionsTriggered.add("Setting: ${rule.targetSettingName} → ${rule.targetSettingValueDisplay}")
+                        }
+                    }
+
+                    // Action 2: Mobile Notification
+                    if (rule.enableNotificationAction) {
+                        var formattedMessage = rule.notificationMessageTemplate ?: "Condition met for ${rule.name}"
+                        activeDevice.dataPoints.forEach { dp ->
+                            formattedMessage = formattedMessage.replace("{${dp.title}}", "${dp.value} ${dp.unit ?: ""}".trim(), ignoreCase = true)
+                        }
+                        actionsTriggered.add("Mobile Notification")
+                        NotificationUtils.sendNotification(
+                            context = context,
+                            title = rule.notificationTitle ?: rule.name,
+                            message = formattedMessage
+                        )
+                    }
+                    
+                    if (actionsTriggered.isNotEmpty()) {
+                        Log.d("DeviceRepository", "Automation triggered: ${rule.name}. Actions: ${actionsTriggered.joinToString(", ")}")
+                        // Mark as triggered so it doesn't fire again until condition is reset
+                        updatedRules[i] = rule.copy(isTriggered = true, lastTriggeredAt = System.currentTimeMillis())
+                        rulesChanged = true
+                    }
+                } else {
+                    // Condition is NOT met. If it was previously triggered, reset it so it can trigger again next time
+                    if (rule.isTriggered) {
+                        Log.d("DeviceRepository", "Automation reset: ${rule.name}. Condition no longer met.")
+                        updatedRules[i] = rule.copy(isTriggered = false)
+                        rulesChanged = true
+                    }
+                }
+            }
+            
+            if (rulesChanged) {
+                withContext(Dispatchers.Main) {
+                    setAutomationRules(updatedRules)
                 }
             }
         }
-        
-        if (rulesChanged) {
-            withContext(Dispatchers.Main) {
-                setAutomationRules(updatedRules)
+    }
+
+    // Export/Import Logic
+    suspend fun exportAppData(context: Context): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
+            val zipFile = File(exportDir, "SmartESS_Backup_${System.currentTimeMillis()}.zip")
+            
+            ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
+                // 1. Export Preferences
+                val settingsMap = prefs.all
+                val settingsJson = gson.toJson(settingsMap)
+                zos.putNextEntry(ZipEntry("settings.json"))
+                zos.write(settingsJson.toByteArray())
+                zos.closeEntry()
+
+                // 2. Export Database
+                val dbFile = context.getDatabasePath("app_database")
+                if (dbFile.exists()) {
+                    zos.putNextEntry(ZipEntry("app_database.db"))
+                    FileInputStream(dbFile).use { fis ->
+                        val buffer = ByteArray(4096)
+                        var length: Int
+                        while (fis.read(buffer).also { length = it } > 0) {
+                            zos.write(buffer, 0, length)
+                        }
+                    }
+                    zos.closeEntry()
+                }
             }
-        }
+            Result.success(zipFile)
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun importAppData(context: Context, uri: Uri): Result<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                ZipInputStream(inputStream).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        when (entry.name) {
+                            "settings.json" -> {
+                                val jsonStr = zis.bufferedReader().readText()
+                                val type = object : TypeToken<Map<String, Any?>>() {}.type
+                                val map: Map<String, Any?> = gson.fromJson(jsonStr, type)
+                                val editor = prefs.edit()
+                                map.forEach { (key, value) ->
+                                    when (value) {
+                                        is Boolean -> editor.putBoolean(key, value)
+                                        is Float -> editor.putFloat(key, value)
+                                        is Int -> editor.putInt(key, value)
+                                        is Long -> editor.putLong(key, value)
+                                        is String -> editor.putString(key, value)
+                                    }
+                                }
+                                editor.apply()
+                            }
+                            "app_database.db" -> {
+                                val dbFile = context.getDatabasePath("app_database")
+                                FileOutputStream(dbFile).use { fos ->
+                                    val buffer = ByteArray(4096)
+                                    var length: Int
+                                    while (zis.read(buffer).also { length = it } > 0) {
+                                        fos.write(buffer, 0, length)
+                                    }
+                                }
+                            }
+                        }
+                        zis.closeEntry()
+                        entry = zis.nextEntry
+                    }
+                }
+            }
+            Result.success(true)
+        } catch (e: Exception) { Result.failure(e) }
     }
 }

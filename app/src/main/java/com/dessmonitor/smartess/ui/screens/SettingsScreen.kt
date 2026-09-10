@@ -1,7 +1,12 @@
 package com.dessmonitor.smartess.ui.screens
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -25,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -257,7 +264,7 @@ fun SettingsScreen(
                         ThemeSettingsContent(repository = repository)
                     }
                     composable(SettingsTab.App.route) {
-                        AppSettingsContent()
+                        AppSettingsContent(repository = repository)
                     }
                 }
             }
@@ -533,9 +540,135 @@ fun ThemeSettingsContent(repository: DeviceRepository) {
 }
 
 @Composable
-fun AppSettingsContent() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text("App Settings (Coming Soon)")
+fun AppSettingsContent(repository: DeviceRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    val enableNotifications by repository.enableNotifications.observeAsState(true)
+    val enableAlarmNotifications by repository.enableAlarmNotifications.observeAsState(true)
+    val enableBatteryAlarm by repository.enableBatteryAlarm.observeAsState(false)
+    val batteryAlarmThreshold by repository.batteryAlarmThreshold.observeAsState(20)
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        uri?.let {
+            scope.launch {
+                repository.exportAppData(context).onSuccess { file ->
+                    try {
+                        context.contentResolver.openOutputStream(it)?.use { out ->
+                            file.inputStream().use { input -> input.copyTo(out) }
+                        }
+                        Toast.makeText(context, "Backup exported successfully", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }.onFailure { e ->
+                    Toast.makeText(context, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            scope.launch {
+                repository.importAppData(context, it).onSuccess {
+                    Toast.makeText(context, "Backup imported! Restarting app...", Toast.LENGTH_LONG).show()
+                    // Restart app after delay
+                    delay(2000L)
+                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                    intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    context.startActivity(intent)
+                    (context as? Activity)?.finish()
+                }.onFailure { e ->
+                    Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Notifications Section
+                Text("Notifications", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+                
+                ListItem(
+                    headlineContent = { Text("Master Notification Switch") },
+                    supportingContent = { Text("Enable/Disable all app notifications") },
+                    trailingContent = {
+                        Switch(checked = enableNotifications, onCheckedChange = { repository.setEnableNotifications(it) })
+                    }
+                )
+                
+                if (enableNotifications) {
+                    ListItem(
+                        headlineContent = { Text("Inverter Alarms") },
+                        supportingContent = { Text("Notify when the inverter reports a fault or warning") },
+                        trailingContent = {
+                            Switch(checked = enableAlarmNotifications, onCheckedChange = { repository.setEnableAlarmNotifications(it) })
+                        }
+                    )
+                    
+                    ListItem(
+                        headlineContent = { Text("Battery % Alarm") },
+                        supportingContent = { Text("Notify when battery level drops below threshold") },
+                        trailingContent = {
+                            Switch(checked = enableBatteryAlarm, onCheckedChange = { repository.setEnableBatteryAlarm(it) })
+                        }
+                    )
+                    
+                    if (enableBatteryAlarm) {
+                        var tempThreshold by remember(batteryAlarmThreshold) { mutableStateOf(batteryAlarmThreshold.toString()) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = tempThreshold,
+                                onValueChange = { 
+                                    if (it.isEmpty() || (it.toIntOrNull() != null && it.toInt() in 0..100)) {
+                                        tempThreshold = it
+                                        it.toIntOrNull()?.let { valNum -> repository.setBatteryAlarmThreshold(valNum) }
+                                    }
+                                },
+                                label = { Text("Alarm Threshold (%)") },
+                                modifier = Modifier.weight(1f),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Data Section
+                Text("Data & Backup", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+                
+                ListItem(
+                    headlineContent = { Text("Export Backup") },
+                    supportingContent = { Text("Export all settings and history database to a ZIP file") },
+                    modifier = Modifier.clickable { exportLauncher.launch("SmartESS_Backup.zip") },
+                    trailingContent = { Icon(Icons.Default.Upload, null) }
+                )
+                
+                ListItem(
+                    headlineContent = { Text("Import Backup") },
+                    supportingContent = { Text("Restore settings and history from a previous backup file") },
+                    modifier = Modifier.clickable { importLauncher.launch(arrayOf("application/zip")) },
+                    trailingContent = { Icon(Icons.Default.Download, null) }
+                )
+            }
+        }
+        item {
+            Spacer(modifier = Modifier.height(110.dp))
+        }
     }
 }
 
