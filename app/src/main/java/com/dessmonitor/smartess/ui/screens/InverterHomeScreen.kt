@@ -39,6 +39,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dessmonitor.smartess.data.models.CustomGauge
+import com.dessmonitor.smartess.data.models.GaugeChartType
+import com.dessmonitor.smartess.data.models.GaugeValueSource
+import com.dessmonitor.smartess.data.models.GaugeColorMode
+import com.dessmonitor.smartess.ui.components.GaugeCard
+import com.dessmonitor.smartess.ui.components.AddEditGaugeDialog
+import com.dessmonitor.smartess.ui.components.parseHexColor
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
 import kotlinx.coroutines.launch
 
@@ -51,6 +58,17 @@ fun InverterHomeScreen(
 ) {
     val devices by repository.devices.observeAsState(emptyList())
     val selectedStats by repository.selectedStats.observeAsState(emptyList())
+    val customGauges by repository.customGauges.observeAsState(emptyList())
+    val selectedPaletteIndex by repository.selectedPaletteIndex.observeAsState(0)
+    val customPalette by repository.customPalette.observeAsState(emptyList())
+
+    val paletteColors = remember(selectedPaletteIndex, customPalette) {
+        repository.getActivePalette().map { parseHexColor(it) }
+    }
+
+    var showGaugeDialog by remember { mutableStateOf(false) }
+    var editingGauge by remember { mutableStateOf<CustomGauge?>(null) }
+
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
     var syncError by remember { mutableStateOf<String?>(null) }
@@ -89,10 +107,37 @@ fun InverterHomeScreen(
 
     fun getNumeric(vararg titles: String): Double {
         for (title in titles) {
-            val dp = activeDevice?.dataPoints?.find { it.title.trim().equals(title, ignoreCase = true) || it.title.trim().contains(title, ignoreCase = true) }
-            if (dp != null) return dp.value.toString().toDoubleOrNull() ?: 0.0
+            val synonyms = when (title.lowercase().trim()) {
+                "battery charge current", "battery charging current" -> listOf("Battery Charge Current", "Battery Charging Current", "Charge Current", "Chg Current", "Bat Charge Current")
+                "battery discharge current", "battery discharging current" -> listOf("Battery Discharge Current", "Battery Discharging Current", "Discharge Current", "Dischg Current", "Bat Discharge Current")
+                "output power", "load power" -> listOf("Output Power", "Load Power", "AC Output Power", "AC Output Active Power", "Out Power")
+                "load percentage", "load percent", "load ratio" -> listOf("Load Percentage", "Load Percent", "Load %", "Load Ratio", "Output Load Percent")
+                "pv power", "pv active power", "solar power" -> listOf("PV Power", "PV Active power", "PV1 Input Power", "Solar Power", "PV Production")
+                "grid voltage", "ac voltage" -> listOf("Grid Voltage", "AC Voltage", "Grid Volt", "Line Voltage", "AC Output Rating Voltage")
+                "soc", "battery capacity", "state of charge" -> listOf("SOC", "Battery Capacity", "State of Charge", "Battery SOC", "Bat SOC")
+                "battery voltage" -> listOf("Battery Voltage", "BMS battery voltage", "Bat Voltage")
+                else -> listOf(title)
+            }
+            for (syn in synonyms) {
+                val dp = activeDevice?.dataPoints?.find {
+                    it.title.trim().equals(syn, ignoreCase = true) || it.title.trim().contains(syn, ignoreCase = true)
+                }
+                if (dp != null) {
+                    val raw = dp.value.toString().replace(Regex("[^0-9.-]"), "")
+                    val parsed = raw.toDoubleOrNull()
+                    if (parsed != null) return parsed
+                }
+            }
         }
         return 0.0
+    }
+
+    fun getGaugeCurrentValue(gauge: CustomGauge): Double {
+        return if (gauge.valueSource == GaugeValueSource.MANUAL_ENTRY) {
+            gauge.manualValue
+        } else {
+            getNumeric(gauge.sensorTitle)
+        }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -376,7 +421,143 @@ fun InverterHomeScreen(
                     onNodeClick = onTrendsClick
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                // ====================================================
+                // Themed Visual Gauges & Half-Pie Section
+                // ====================================================
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp, bottom = 10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Visual Gauges",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    paletteColors.take(5).forEach { dotColor ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(dotColor)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                "Half-pie & radial gauges (Themed)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = {
+                                editingGauge = null
+                                showGaugeDialog = true
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Add Gauge", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                if (customGauges.isEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        ),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.Speed,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "No Visual Gauges Configured",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Add custom half-pie or radial gauges with min/max values and live inverter telemetry.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = {
+                                    editingGauge = null
+                                    showGaugeDialog = true
+                                }
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Add First Gauge")
+                            }
+                        }
+                    }
+                } else {
+                    val gaugeChunks = customGauges.chunked(2)
+                    gaugeChunks.forEach { chunk ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            chunk.forEach { gauge ->
+                                val curVal = getGaugeCurrentValue(gauge)
+                                GaugeCard(
+                                    gauge = gauge,
+                                    currentValue = curVal,
+                                    paletteColors = paletteColors,
+                                    onEdit = {
+                                        editingGauge = gauge
+                                        showGaugeDialog = true
+                                    },
+                                    onDelete = {
+                                        repository.removeCustomGauge(gauge.id)
+                                    },
+                                    onTrendsClick = onTrendsClick,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (chunk.size == 1) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
                 
                 // Detailed Statistics Title with Edit button
                 Surface(
@@ -552,6 +733,28 @@ fun InverterHomeScreen(
                 repository = repository,
                 activeDevice = activeDevice,
                 onDismiss = { showAutomationDialog = false }
+            )
+        }
+
+        if (showGaugeDialog) {
+            val availableSensors = activeDevice?.dataPoints?.map { it.title }?.distinct() ?: emptyList()
+            AddEditGaugeDialog(
+                initialGauge = editingGauge,
+                availableSensors = availableSensors,
+                paletteColors = paletteColors,
+                onDismiss = {
+                    showGaugeDialog = false
+                    editingGauge = null
+                },
+                onSave = { savedGauge ->
+                    if (editingGauge != null) {
+                        repository.updateCustomGauge(savedGauge)
+                    } else {
+                        repository.addCustomGauge(savedGauge)
+                    }
+                    showGaugeDialog = false
+                    editingGauge = null
+                }
             )
         }
     }

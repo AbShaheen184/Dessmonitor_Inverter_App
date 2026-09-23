@@ -14,6 +14,10 @@ import com.dessmonitor.smartess.data.models.DeviceInfo
 import com.dessmonitor.smartess.data.models.AutomationRule
 import com.dessmonitor.smartess.data.models.ComparisonOperator
 import com.dessmonitor.smartess.data.models.RightOperandType
+import com.dessmonitor.smartess.data.models.CustomGauge
+import com.dessmonitor.smartess.data.models.GaugeChartType
+import com.dessmonitor.smartess.data.models.GaugeValueSource
+import com.dessmonitor.smartess.data.models.GaugeColorMode
 import com.dessmonitor.smartess.utils.NotificationUtils
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -115,6 +119,68 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
     private val _automationRules = MutableLiveData<List<com.dessmonitor.smartess.data.models.AutomationRule>>(emptyList())
     val automationRules: LiveData<List<com.dessmonitor.smartess.data.models.AutomationRule>> = _automationRules
+
+    private val defaultCustomGauges = listOf(
+        CustomGauge(
+            id = "gauge_solar",
+            title = "Solar Generation",
+            chartType = GaugeChartType.HALF_PIE,
+            valueSource = GaugeValueSource.INVERTER_SENSOR,
+            sensorTitle = "PV Power",
+            unit = "W",
+            minValue = 0.0,
+            maxValue = 5000.0,
+            colorMode = GaugeColorMode.PALETTE_GRADIENT,
+            paletteColorIndex = 0
+        ),
+        CustomGauge(
+            id = "gauge_battery",
+            title = "Battery State of Charge",
+            chartType = GaugeChartType.RADIAL_GAUGE,
+            valueSource = GaugeValueSource.INVERTER_SENSOR,
+            sensorTitle = "SOC",
+            unit = "%",
+            minValue = 0.0,
+            maxValue = 100.0,
+            colorMode = GaugeColorMode.PALETTE_COLOR,
+            paletteColorIndex = 1
+        ),
+        CustomGauge(
+            id = "gauge_load",
+            title = "AC Output Load",
+            chartType = GaugeChartType.HALF_PIE,
+            valueSource = GaugeValueSource.INVERTER_SENSOR,
+            sensorTitle = "Output Power",
+            unit = "W",
+            minValue = 0.0,
+            maxValue = 6000.0,
+            colorMode = GaugeColorMode.PALETTE_GRADIENT,
+            paletteColorIndex = 2
+        )
+    )
+
+    private val _customGauges = MutableLiveData<List<CustomGauge>>(defaultCustomGauges)
+    val customGauges: LiveData<List<CustomGauge>> = _customGauges
+
+    fun setCustomGauges(gauges: List<CustomGauge>) {
+        _customGauges.value = gauges
+        prefs.edit().putString("custom_gauges", gson.toJson(gauges)).apply()
+    }
+
+    fun addCustomGauge(gauge: CustomGauge) {
+        val current = _customGauges.value ?: emptyList()
+        setCustomGauges(current + gauge)
+    }
+
+    fun updateCustomGauge(gauge: CustomGauge) {
+        val current = _customGauges.value ?: emptyList()
+        setCustomGauges(current.map { if (it.id == gauge.id) gauge else it })
+    }
+
+    fun removeCustomGauge(gaugeId: String) {
+        val current = _customGauges.value ?: emptyList()
+        setCustomGauges(current.filter { it.id != gaugeId })
+    }
 
     fun setAutomationRules(rules: List<com.dessmonitor.smartess.data.models.AutomationRule>) {
         _automationRules.value = rules
@@ -288,6 +354,15 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
 
         val autoJson = prefs.getString("automation_rules", null)
         if (autoJson != null) try { _automationRules.value = gson.fromJson(autoJson, object : TypeToken<List<com.dessmonitor.smartess.data.models.AutomationRule>>() {}.type) } catch (_: Exception) {}
+
+        val gaugesJson = prefs.getString("custom_gauges", null)
+        if (gaugesJson != null) try {
+            val type = object : TypeToken<List<CustomGauge>>() {}.type
+            val savedGauges: List<CustomGauge> = gson.fromJson(gaugesJson, type)
+            if (savedGauges.isNotEmpty()) {
+                _customGauges.value = savedGauges
+            }
+        } catch (_: Exception) {}
 
         // Load history cache
         val savedHistory = prefs.getString("history_cache", null)

@@ -779,6 +779,59 @@ fun ThemeSettingsView(repository: DeviceRepository) {
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(20.dp))
+        Text("Chart & Gauge Preview", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "Half-pie and radial speedometer charts update dynamically with the selected palette.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        val activeColors = repository.getActivePalette().map { com.dessmonitor.smartess.ui.components.parseHexColor(it) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            com.dessmonitor.smartess.ui.components.GaugeCard(
+                gauge = com.dessmonitor.smartess.data.models.CustomGauge(
+                    id = "preview_half_pie",
+                    title = "Solar (Half-Pie)",
+                    chartType = com.dessmonitor.smartess.data.models.GaugeChartType.HALF_PIE,
+                    valueSource = com.dessmonitor.smartess.data.models.GaugeValueSource.MANUAL_ENTRY,
+                    manualValue = 3850.0,
+                    unit = "W",
+                    minValue = 0.0,
+                    maxValue = 5000.0,
+                    colorMode = com.dessmonitor.smartess.data.models.GaugeColorMode.PALETTE_GRADIENT
+                ),
+                currentValue = 3850.0,
+                paletteColors = activeColors,
+                onEdit = {},
+                onDelete = {},
+                modifier = Modifier.weight(1f)
+            )
+            com.dessmonitor.smartess.ui.components.GaugeCard(
+                gauge = com.dessmonitor.smartess.data.models.CustomGauge(
+                    id = "preview_radial",
+                    title = "Battery (Gauge)",
+                    chartType = com.dessmonitor.smartess.data.models.GaugeChartType.RADIAL_GAUGE,
+                    valueSource = com.dessmonitor.smartess.data.models.GaugeValueSource.MANUAL_ENTRY,
+                    manualValue = 82.0,
+                    unit = "%",
+                    minValue = 0.0,
+                    maxValue = 100.0,
+                    colorMode = com.dessmonitor.smartess.data.models.GaugeColorMode.PALETTE_COLOR,
+                    paletteColorIndex = 1
+                ),
+                currentValue = 82.0,
+                paletteColors = activeColors,
+                onEdit = {},
+                onDelete = {},
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
