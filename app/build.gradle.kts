@@ -23,22 +23,25 @@ android {
         }
     }
     
-    signingConfigs {
-        create("debugConfig") {
-            storeFile = file("${rootDir}/debug.keystore")
+    val debugKeystoreFile = file("${rootDir}/debug.keystore")
+    val customSigningConfig = if (debugKeystoreFile.exists()) {
+        signingConfigs.create("debugConfig") {
+            storeFile = debugKeystoreFile
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+    } else {
+        signingConfigs.getByName("debug")
     }
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("debugConfig")
+            signingConfig = customSigningConfig
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debugConfig")
+            signingConfig = customSigningConfig
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
