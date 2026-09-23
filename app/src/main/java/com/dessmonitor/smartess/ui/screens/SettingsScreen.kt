@@ -7,6 +7,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,7 +29,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -210,6 +214,7 @@ private sealed class SettingsTab(val route: String, val title: String, val icon:
     object Inverter : SettingsTab("inverter_settings", "Inverter", Icons.Default.ElectricBolt)
     object Theme : SettingsTab("theme_settings", "Theme", Icons.Default.Palette)
     object App : SettingsTab("app_settings", "App", Icons.Default.Settings)
+    object About : SettingsTab("about_settings", "About", Icons.Default.Info)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -226,7 +231,8 @@ fun SettingsScreen(
     val tabs = listOf(
         SettingsTab.Inverter,
         SettingsTab.Theme,
-        SettingsTab.App
+        SettingsTab.App,
+        SettingsTab.About
     )
 
     Scaffold(
@@ -235,7 +241,7 @@ fun SettingsScreen(
                 title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
             )
@@ -265,6 +271,9 @@ fun SettingsScreen(
                     }
                     composable(SettingsTab.App.route) {
                         AppSettingsContent(repository = repository)
+                    }
+                    composable(SettingsTab.About.route) {
+                        AboutSettingsContent()
                     }
                 }
             }
@@ -987,6 +996,263 @@ fun SettingsItem(field: ControlField, onValueChange: (String) -> Unit) {
                     TextButton(onClick = { showDialog = false }) { Text("Cancel") }
                 }
             )
+        }
+    }
+}
+
+@Composable
+fun AboutSettingsContent() {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
+    fun openUrl(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Could not open link: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun copyToClipboard(text: String, label: String = "Link") {
+        clipboardManager.setText(AnnotatedString(text))
+        Toast.makeText(context, "$label copied to clipboard", Toast.LENGTH_SHORT).show()
+    }
+
+    val repoUrl = "https://github.com/AbShaheen184/Dessmonitor_Inverter_App"
+    val commitsUrl = "https://github.com/AbShaheen184/Dessmonitor_Inverter_App/commits/main"
+    val releasesUrl = "https://github.com/AbShaheen184/Dessmonitor_Inverter_App/releases"
+    val haDessmonitorUrl = "https://github.com/andreas-glaser/ha-dessmonitor"
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        // App Header / Hero Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ElectricBolt,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "DessMonitor SmartESS",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            "Version 2.3.0 (Build 224)",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Smart ESS inverter monitoring and automation dashboard for DessMonitor devices.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+
+        // GitHub & Changelog Section
+        item {
+            Text(
+                "Source Code & Changelog",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(8.dp))
+
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            ) {
+                Column {
+                    ListItem(
+                        headlineContent = { Text("GitHub Repository", fontWeight = FontWeight.SemiBold) },
+                        supportingContent = { Text("AbShaheen184/Dessmonitor_Inverter_App", fontSize = 12.sp) },
+                        leadingContent = {
+                            Icon(Icons.Default.Code, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        },
+                        trailingContent = {
+                            Row {
+                                IconButton(onClick = { copyToClipboard(repoUrl, "Repository URL") }) {
+                                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL", modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(onClick = { openUrl(repoUrl) }) {
+                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open Repository")
+                                }
+                            }
+                        },
+                        modifier = Modifier.clickable { openUrl(repoUrl) }
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ListItem(
+                        headlineContent = { Text("Commit History & Changelog", fontWeight = FontWeight.SemiBold) },
+                        supportingContent = { Text("View recent commits, bug fixes, and updates", fontSize = 12.sp) },
+                        leadingContent = {
+                            Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        },
+                        trailingContent = {
+                            IconButton(onClick = { openUrl(commitsUrl) }) {
+                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open Commits")
+                            }
+                        },
+                        modifier = Modifier.clickable { openUrl(commitsUrl) }
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ListItem(
+                        headlineContent = { Text("Releases & APK Downloads", fontWeight = FontWeight.SemiBold) },
+                        supportingContent = { Text("Download latest compiled APK releases from GitHub", fontSize = 12.sp) },
+                        leadingContent = {
+                            Icon(Icons.Default.Download, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        },
+                        trailingContent = {
+                            IconButton(onClick = { openUrl(releasesUrl) }) {
+                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open Releases")
+                            }
+                        },
+                        modifier = Modifier.clickable { openUrl(releasesUrl) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+
+        // Credits & Acknowledgements Section (Highlighting ha-dessmonitor)
+        item {
+            Text(
+                "Credits & Acknowledgements",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.height(8.dp))
+
+            // Special Highlight Card for Andreas Glaser / ha-dessmonitor
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            "Special Thanks & Core Reference",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "ha-dessmonitor (Home Assistant Plugin)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Created by Andreas Glaser (@andreas-glaser)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Immense gratitude to Andreas Glaser for developing the ha-dessmonitor integration for Home Assistant. His protocol reverse-engineering of the DessMonitor / Shinemonitor cloud APIs, documentation, and parameter mappings served as an essential foundation for this project.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        OutlinedButton(
+                            onClick = { openUrl(haDessmonitorUrl) },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("View ha-dessmonitor on GitHub", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // Community & Project Info
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            ) {
+                Column {
+                    ListItem(
+                        headlineContent = { Text("DessMonitor Cloud Ecosystem", fontWeight = FontWeight.SemiBold) },
+                        supportingContent = { Text("Thanks to the open energy monitoring community for shared telemetry specifications and inverter protocol research.") },
+                        leadingContent = {
+                            Icon(Icons.Default.Sensors, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    ListItem(
+                        headlineContent = { Text("Maintainer", fontWeight = FontWeight.SemiBold) },
+                        supportingContent = { Text("Abuzar Shaheen (abuzar.shaheen2006@gmail.com)") },
+                        leadingContent = {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(110.dp)) // Padding for FloatingNavigationBar
         }
     }
 }
