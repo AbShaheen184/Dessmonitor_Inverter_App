@@ -590,7 +590,7 @@ fun AddEditGaugeDialog(
     onDismiss: () -> Unit,
     onSave: (CustomGauge) -> Unit
 ) {
-    var title by remember { mutableStateOf(initialGauge?.title ?: "Solar Generation") }
+    var title by remember { mutableStateOf(initialGauge?.title ?: (initialGauge?.sensorTitle ?: "PV Power")) }
     var chartType by remember { mutableStateOf(initialGauge?.chartType ?: GaugeChartType.HALF_PIE) }
     var valueSource by remember { mutableStateOf(initialGauge?.valueSource ?: GaugeValueSource.INVERTER_SENSOR) }
     var sensorTitle by remember { mutableStateOf(initialGauge?.sensorTitle ?: "PV Power") }
@@ -606,16 +606,7 @@ fun AddEditGaugeDialog(
     // Quick presets handler
     fun applyPreset(presetSensor: String, presetUnit: String, presetMin: Double, presetMax: Double) {
         sensorTitle = presetSensor
-        title = when (presetSensor) {
-            "PV Power", "PV1 Input Power" -> "Solar Yield"
-            "Output Power", "Load Power" -> "AC Load"
-            "SOC", "Battery Capacity" -> "Battery SOC"
-            "Grid Voltage" -> "Grid Voltage"
-            "Battery Voltage" -> "Battery Voltage"
-            "Load Percentage" -> "Load Percent"
-            "Battery Charge Current" -> "Charging Current"
-            else -> presetSensor
-        }
+        title = presetSensor
         unit = presetUnit
         minText = if (presetMin % 1.0 == 0.0) presetMin.toLong().toString() else presetMin.toString()
         maxText = if (presetMax % 1.0 == 0.0) presetMax.toLong().toString() else presetMax.toString()
@@ -682,7 +673,8 @@ fun AddEditGaugeDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Chart Title") },
+                    label = { Text("Title") },
+                    supportingText = { Text("Card title on dashboard (auto-filled with value name, editable)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -781,6 +773,7 @@ fun AddEditGaugeDialog(
                                     text = { Text(sensor) },
                                     onClick = {
                                         sensorTitle = sensor
+                                        title = sensor
                                         expandedSensorDropdown = false
                                         // Auto-adjust unit & default max
                                         when {
