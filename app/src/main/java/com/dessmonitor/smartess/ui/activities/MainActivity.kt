@@ -4,7 +4,7 @@ import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
@@ -18,9 +18,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.e("CRITICAL_DEBUG", "MainActivity onCreate")
+        enableEdgeToEdge()
+        Log.d("MainActivity", "MainActivity onCreate")
         setContent {
-            SmartESSTheme {
+            SmartESSTheme(repository = repository) {
                 val isLoggedIn by repository.isLoggedIn.observeAsState(false)
 
                 if (isLoggedIn) {

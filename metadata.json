@@ -1,0 +1,6 @@
+{
+  "name": "DessMonitor SmartESS",
+  "description": "Smart ESS inverter monitoring and automation dashboard for DessMonitor devices.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
