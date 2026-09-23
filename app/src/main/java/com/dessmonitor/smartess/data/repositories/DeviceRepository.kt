@@ -156,6 +156,50 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
             maxValue = 6000.0,
             colorMode = GaugeColorMode.PALETTE_GRADIENT,
             paletteColorIndex = 2
+        ),
+        CustomGauge(
+            id = "tile_grid_voltage",
+            title = "Grid Voltage",
+            chartType = GaugeChartType.TEXT_TILE,
+            valueSource = GaugeValueSource.INVERTER_SENSOR,
+            sensorTitle = "Grid Voltage",
+            unit = "V",
+            minValue = 0.0,
+            maxValue = 260.0,
+            paletteColorIndex = 3
+        ),
+        CustomGauge(
+            id = "tile_charge_current",
+            title = "Charge Current",
+            chartType = GaugeChartType.TEXT_TILE,
+            valueSource = GaugeValueSource.INVERTER_SENSOR,
+            sensorTitle = "Battery Charge Current",
+            unit = "A",
+            minValue = 0.0,
+            maxValue = 60.0,
+            paletteColorIndex = 1
+        ),
+        CustomGauge(
+            id = "tile_discharge_current",
+            title = "Discharge Current",
+            chartType = GaugeChartType.TEXT_TILE,
+            valueSource = GaugeValueSource.INVERTER_SENSOR,
+            sensorTitle = "Battery Discharge Current",
+            unit = "A",
+            minValue = 0.0,
+            maxValue = 60.0,
+            paletteColorIndex = 4
+        ),
+        CustomGauge(
+            id = "tile_load_percent",
+            title = "Load Ratio",
+            chartType = GaugeChartType.TEXT_TILE,
+            valueSource = GaugeValueSource.INVERTER_SENSOR,
+            sensorTitle = "Load Percentage",
+            unit = "%",
+            minValue = 0.0,
+            maxValue = 100.0,
+            paletteColorIndex = 0
         )
     )
 
@@ -180,6 +224,28 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
     fun removeCustomGauge(gaugeId: String) {
         val current = _customGauges.value ?: emptyList()
         setCustomGauges(current.filter { it.id != gaugeId })
+    }
+
+    fun moveCustomGaugeUp(index: Int) {
+        val current = _customGauges.value?.toMutableList() ?: return
+        if (index > 0 && index < current.size) {
+            val item = current.removeAt(index)
+            current.add(index - 1, item)
+            setCustomGauges(current)
+        }
+    }
+
+    fun moveCustomGaugeDown(index: Int) {
+        val current = _customGauges.value?.toMutableList() ?: return
+        if (index >= 0 && index < current.size - 1) {
+            val item = current.removeAt(index)
+            current.add(index + 1, item)
+            setCustomGauges(current)
+        }
+    }
+
+    fun resetGaugesToDefault() {
+        setCustomGauges(defaultCustomGauges)
     }
 
     fun setAutomationRules(rules: List<com.dessmonitor.smartess.data.models.AutomationRule>) {

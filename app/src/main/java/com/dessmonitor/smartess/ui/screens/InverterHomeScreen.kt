@@ -45,6 +45,7 @@ import com.dessmonitor.smartess.data.models.GaugeValueSource
 import com.dessmonitor.smartess.data.models.GaugeColorMode
 import com.dessmonitor.smartess.ui.components.GaugeCard
 import com.dessmonitor.smartess.ui.components.AddEditGaugeDialog
+import com.dessmonitor.smartess.ui.components.ManageDashboardDialog
 import com.dessmonitor.smartess.ui.components.parseHexColor
 import com.dessmonitor.smartess.data.repositories.DeviceRepository
 import kotlinx.coroutines.launch
@@ -68,6 +69,7 @@ fun InverterHomeScreen(
 
     var showGaugeDialog by remember { mutableStateOf(false) }
     var editingGauge by remember { mutableStateOf<CustomGauge?>(null) }
+    var showManageDashboardDialog by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
@@ -422,7 +424,7 @@ fun InverterHomeScreen(
                 )
 
                 // ====================================================
-                // Themed Visual Gauges & Half-Pie Section
+                // Unified Dashboard Section (Visual Gauges & Telemetry)
                 // ====================================================
                 Surface(
                     modifier = Modifier
@@ -436,10 +438,10 @@ fun InverterHomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "Visual Gauges",
+                                    "Telemetry & Gauges",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.ExtraBold
                                 )
@@ -456,22 +458,36 @@ fun InverterHomeScreen(
                                 }
                             }
                             Text(
-                                "Half-pie & radial gauges (Themed)",
+                                "Live widgets • Half-pie, radial & text cards",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
                         }
-                        FilledTonalButton(
-                            onClick = {
-                                editingGauge = null
-                                showGaugeDialog = true
-                            },
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Add Gauge", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            FilledTonalIconButton(
+                                onClick = { showManageDashboardDialog = true },
+                                modifier = Modifier.size(36.dp),
+                                shape = CircleShape
+                            ) {
+                                Icon(Icons.Default.Tune, contentDescription = "Manage Dashboard", modifier = Modifier.size(18.dp))
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    editingGauge = null
+                                    showGaugeDialog = true
+                                },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Add Item", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -493,47 +509,59 @@ fun InverterHomeScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Icon(
-                                Icons.Default.Speed,
+                                Icons.Default.DashboardCustomize,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(36.dp)
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                "No Visual Gauges Configured",
+                                "Dashboard is Empty",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                "Add custom half-pie or radial gauges with min/max values and live inverter telemetry.",
+                                "Add custom visual gauges or text telemetry cards with min/max values and live inverter telemetry.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                             )
                             Spacer(Modifier.height(10.dp))
-                            Button(
-                                onClick = {
-                                    editingGauge = null
-                                    showGaugeDialog = true
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        editingGauge = null
+                                        showGaugeDialog = true
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Add Item")
                                 }
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Add First Gauge")
+                                OutlinedButton(
+                                    onClick = {
+                                        repository.resetGaugesToDefault()
+                                    }
+                                ) {
+                                    Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Reset Defaults")
+                                }
                             }
                         }
                     }
                 } else {
                     val gaugeChunks = customGauges.chunked(2)
-                    gaugeChunks.forEach { chunk ->
+                    gaugeChunks.forEachIndexed { chunkIndex, chunk ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            chunk.forEach { gauge ->
+                            chunk.forEachIndexed { itemIndexInChunk, gauge ->
+                                val overallIndex = chunkIndex * 2 + itemIndexInChunk
                                 val curVal = getGaugeCurrentValue(gauge)
                                 GaugeCard(
                                     gauge = gauge,
@@ -546,6 +574,12 @@ fun InverterHomeScreen(
                                     onDelete = {
                                         repository.removeCustomGauge(gauge.id)
                                     },
+                                    onMoveUp = if (overallIndex > 0) {
+                                        { repository.moveCustomGaugeUp(overallIndex) }
+                                    } else null,
+                                    onMoveDown = if (overallIndex < customGauges.size - 1) {
+                                        { repository.moveCustomGaugeDown(overallIndex) }
+                                    } else null,
                                     onTrendsClick = onTrendsClick,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -555,68 +589,6 @@ fun InverterHomeScreen(
                             }
                         }
                     }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // Detailed Statistics Title with Edit button
-                Surface(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                "Telemetry",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.ExtraBold
-                            )
-                            Text("Live device data", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                        }
-                        FilledTonalIconButton(
-                            onClick = { showStatsDialog = true },
-                            modifier = Modifier.size(40.dp),
-                            shape = CircleShape
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = "Customize", modifier = Modifier.size(18.dp))
-                        }
-                    }
-                }
-                
-                val statChunks = selectedStats.chunked(2)
-                statChunks.forEach { chunk ->
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        chunk.forEach { statTitle ->
-                            StatusItem(
-                                modifier = Modifier.weight(1f),
-                                icon = when {
-                                    statTitle.contains("Yield", true) || statTitle.contains("Generation", true) || statTitle.contains("Energy", true) -> Icons.Default.SolarPower
-                                    statTitle.contains("Voltage", true) || statTitle.contains("Volt", true) -> Icons.Default.ElectricBolt
-                                    statTitle.contains("Temp", true) -> Icons.Default.DeviceThermostat
-                                    statTitle.contains("Power", true) -> Icons.Default.Bolt
-                                    statTitle.contains("Current", true) || statTitle.contains("Amp", true) -> Icons.Default.ElectricMeter
-                                    statTitle.contains("SOC", true) || statTitle.contains("Capacity", true) -> Icons.Default.BatteryStd
-                                    else -> Icons.Default.Info
-                                },
-                                label = statTitle,
-                                value = getValue(statTitle),
-                                enabled = isSystemActive
-                            )
-                        }
-                        if (chunk.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                if (selectedStats.isEmpty()) {
-                    Text("No stats selected. Tap Customize to add.", style = MaterialTheme.typography.bodySmall)
                 }
 
                 syncError?.let {
@@ -733,6 +705,26 @@ fun InverterHomeScreen(
                 repository = repository,
                 activeDevice = activeDevice,
                 onDismiss = { showAutomationDialog = false }
+            )
+        }
+
+        if (showManageDashboardDialog) {
+            ManageDashboardDialog(
+                items = customGauges,
+                onMoveUp = { index -> repository.moveCustomGaugeUp(index) },
+                onMoveDown = { index -> repository.moveCustomGaugeDown(index) },
+                onDelete = { id -> repository.removeCustomGauge(id) },
+                onEdit = { gauge ->
+                    editingGauge = gauge
+                    showManageDashboardDialog = false
+                    showGaugeDialog = true
+                },
+                onAddNew = {
+                    editingGauge = null
+                    showManageDashboardDialog = false
+                    showGaugeDialog = true
+                },
+                onDismiss = { showManageDashboardDialog = false }
             )
         }
 

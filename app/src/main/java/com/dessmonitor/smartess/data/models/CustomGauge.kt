@@ -2,7 +2,8 @@ package com.dessmonitor.smartess.data.models
 
 enum class GaugeChartType {
     HALF_PIE,
-    RADIAL_GAUGE
+    RADIAL_GAUGE,
+    TEXT_TILE
 }
 
 enum class GaugeValueSource {

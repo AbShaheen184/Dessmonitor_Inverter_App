@@ -57,6 +57,8 @@ fun GaugeCard(
     paletteColors: List<Color>,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
     onTrendsClick: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -169,7 +171,7 @@ fun GaugeCard(
                     ) {
                         Icon(
                             Icons.Default.MoreVert,
-                            contentDescription = "Gauge Options",
+                            contentDescription = "Options",
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -178,13 +180,33 @@ fun GaugeCard(
                         onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Edit Gauge") },
+                            text = { Text("Edit Item") },
                             leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                             onClick = {
                                 showMenu = false
                                 onEdit()
                             }
                         )
+                        if (onMoveUp != null) {
+                            DropdownMenuItem(
+                                text = { Text("Move Up") },
+                                leadingIcon = { Icon(Icons.Default.ArrowUpward, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onMoveUp()
+                                }
+                            )
+                        }
+                        if (onMoveDown != null) {
+                            DropdownMenuItem(
+                                text = { Text("Move Down") },
+                                leadingIcon = { Icon(Icons.Default.ArrowDownward, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    onMoveDown()
+                                }
+                            )
+                        }
                         if (gauge.valueSource == GaugeValueSource.INVERTER_SENSOR && onTrendsClick != null) {
                             DropdownMenuItem(
                                 text = { Text("View in Trends") },
@@ -210,77 +232,146 @@ fun GaugeCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Chart Rendering
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(140.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (gauge.chartType == GaugeChartType.HALF_PIE) {
-                    HalfPieCanvas(
-                        progressFraction = animatedFraction,
-                        colorMode = gauge.colorMode,
-                        singleColor = activeColor,
-                        gradientColors = effectiveColors
-                    )
-                } else {
-                    RadialSpeedometerCanvas(
-                        progressFraction = animatedFraction,
-                        colorMode = gauge.colorMode,
-                        singleColor = activeColor,
-                        gradientColors = effectiveColors
-                    )
+            if (gauge.chartType == GaugeChartType.TEXT_TILE) {
+                // Text Tile Layout
+                val sensorIcon = when {
+                    gauge.sensorTitle.contains("Yield", true) || gauge.sensorTitle.contains("Generation", true) || gauge.sensorTitle.contains("Solar", true) || gauge.sensorTitle.contains("PV", true) -> Icons.Default.SolarPower
+                    gauge.sensorTitle.contains("Voltage", true) || gauge.sensorTitle.contains("Volt", true) -> Icons.Default.ElectricBolt
+                    gauge.sensorTitle.contains("Temp", true) -> Icons.Default.DeviceThermostat
+                    gauge.sensorTitle.contains("Power", true) -> Icons.Default.Bolt
+                    gauge.sensorTitle.contains("Current", true) || gauge.sensorTitle.contains("Amp", true) -> Icons.Default.ElectricMeter
+                    gauge.sensorTitle.contains("SOC", true) || gauge.sensorTitle.contains("Capacity", true) || gauge.sensorTitle.contains("Battery", true) -> Icons.Default.BatteryStd
+                    else -> Icons.Default.Info
                 }
 
-                // Centered readout
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.offset(y = if (gauge.chartType == GaugeChartType.HALF_PIE) 14.dp else 18.dp)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    val formattedVal = if (abs(currentValue - currentValue.roundToLong()) < 0.05) {
-                        currentValue.roundToLong().toString()
-                    } else {
-                        String.format(java.util.Locale.US, "%.1f", currentValue)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = activeColor.copy(alpha = 0.16f),
+                            modifier = Modifier.size(42.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = sensorIcon,
+                                    contentDescription = null,
+                                    tint = activeColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val formattedVal = if (abs(currentValue - currentValue.roundToLong()) < 0.05) {
+                            currentValue.roundToLong().toString()
+                        } else {
+                            String.format(java.util.Locale.US, "%.1f", currentValue)
+                        }
+                        Text(
+                            text = if (gauge.unit.isNotBlank()) "$formattedVal ${gauge.unit}" else formattedVal,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
-                    Text(
-                        text = "$formattedVal ${gauge.unit}",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "${(fraction * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = activeColor
+                }
+
+                // Bottom subtle indicator matching theme palette
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(36.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(activeColor.copy(alpha = 0.6f))
                     )
                 }
-            }
+            } else {
+                // Canvas Gauge Layout (Half-Pie or Radial)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (gauge.chartType == GaugeChartType.HALF_PIE) {
+                        HalfPieCanvas(
+                            progressFraction = animatedFraction,
+                            colorMode = gauge.colorMode,
+                            singleColor = activeColor,
+                            gradientColors = effectiveColors
+                        )
+                    } else {
+                        RadialSpeedometerCanvas(
+                            progressFraction = animatedFraction,
+                            colorMode = gauge.colorMode,
+                            singleColor = activeColor,
+                            gradientColors = effectiveColors
+                        )
+                    }
 
-            // Min and Max range indicators at the bottom
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val minStr = if (gauge.minValue % 1.0 == 0.0) "${gauge.minValue.toLong()}" else "${gauge.minValue}"
-                val maxStr = if (gauge.maxValue % 1.0 == 0.0) "${gauge.maxValue.toLong()}" else "${gauge.maxValue}"
+                    // Centered readout
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.offset(y = if (gauge.chartType == GaugeChartType.HALF_PIE) 14.dp else 18.dp)
+                    ) {
+                        val formattedVal = if (abs(currentValue - currentValue.roundToLong()) < 0.05) {
+                            currentValue.roundToLong().toString()
+                        } else {
+                            String.format(java.util.Locale.US, "%.1f", currentValue)
+                        }
+                        Text(
+                            text = "$formattedVal ${gauge.unit}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "${(fraction * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = activeColor
+                        )
+                    }
+                }
 
-                Text(
-                    text = "Min: $minStr ${gauge.unit}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.sp
-                )
-                Text(
-                    text = "Max: $maxStr ${gauge.unit}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    fontSize = 11.sp
-                )
+                // Min and Max range indicators at the bottom
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val minStr = if (gauge.minValue % 1.0 == 0.0) "${gauge.minValue.toLong()}" else "${gauge.minValue}"
+                    val maxStr = if (gauge.maxValue % 1.0 == 0.0) "${gauge.maxValue.toLong()}" else "${gauge.maxValue}"
+
+                    Text(
+                        text = "Min: $minStr ${gauge.unit}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.sp
+                    )
+                    Text(
+                        text = "Max: $maxStr ${gauge.unit}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
     }
@@ -598,23 +689,30 @@ fun AddEditGaugeDialog(
 
                 Spacer(Modifier.height(14.dp))
 
-                // Chart Type Selection
-                Text("Chart Style", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                // Widget Type Selection
+                Text("Widget Type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    FilterChip(
+                        selected = chartType == GaugeChartType.TEXT_TILE,
+                        onClick = { chartType = GaugeChartType.TEXT_TILE },
+                        label = { Text("Text Card", fontSize = 12.sp) },
+                        leadingIcon = { Icon(Icons.Default.Article, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                        modifier = Modifier.weight(1f)
+                    )
                     FilterChip(
                         selected = chartType == GaugeChartType.HALF_PIE,
                         onClick = { chartType = GaugeChartType.HALF_PIE },
-                        label = { Text("Half-Pie Arc") },
+                        label = { Text("Half-Pie", fontSize = 12.sp) },
                         leadingIcon = { Icon(Icons.Default.PieChart, contentDescription = null, modifier = Modifier.size(16.dp)) },
                         modifier = Modifier.weight(1f)
                     )
                     FilterChip(
                         selected = chartType == GaugeChartType.RADIAL_GAUGE,
                         onClick = { chartType = GaugeChartType.RADIAL_GAUGE },
-                        label = { Text("Radial Gauge") },
+                        label = { Text("Radial", fontSize = 12.sp) },
                         leadingIcon = { Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp)) },
                         modifier = Modifier.weight(1f)
                     )
@@ -729,99 +827,20 @@ fun AddEditGaugeDialog(
                     )
                 }
 
-                Spacer(Modifier.height(14.dp))
-
-                // Min and Max Limits
-                Text("Min & Max Range", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = minText,
-                        onValueChange = { minText = it },
-                        label = { Text("Min Value") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = maxText,
-                        onValueChange = { maxText = it },
-                        label = { Text("Max Value") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
+                if (chartType == GaugeChartType.TEXT_TILE) {
+                    Spacer(Modifier.height(14.dp))
                     OutlinedTextField(
                         value = unit,
                         onValueChange = { unit = it },
-                        label = { Text("Unit") },
-                        modifier = Modifier.width(72.dp),
-                        singleLine = true
+                        label = { Text("Display Unit (e.g. W, V, A, %)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
                     )
-                }
 
-                // Quick Inverter Presets
-                Spacer(Modifier.height(8.dp))
-                Text("Quick Inverter Presets:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    AssistChip(
-                        onClick = { applyPreset("PV Power", "W", 0.0, 5000.0) },
-                        label = { Text("Solar 5kW", fontSize = 11.sp) }
-                    )
-                    AssistChip(
-                        onClick = { applyPreset("SOC", "%", 0.0, 100.0) },
-                        label = { Text("SOC 100%", fontSize = 11.sp) }
-                    )
-                    AssistChip(
-                        onClick = { applyPreset("Output Power", "W", 0.0, 6000.0) },
-                        label = { Text("Load 6kW", fontSize = 11.sp) }
-                    )
-                    AssistChip(
-                        onClick = { applyPreset("Grid Voltage", "V", 180.0, 260.0) },
-                        label = { Text("Grid 260V", fontSize = 11.sp) }
-                    )
-                }
-
-                Spacer(Modifier.height(14.dp))
-
-                // Theme Palette Color Settings
-                Text("Theme Palette Colors", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "Colors automatically sync with your selected theme palette in Themes settings.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = colorMode == GaugeColorMode.PALETTE_GRADIENT,
-                        onClick = { colorMode = GaugeColorMode.PALETTE_GRADIENT },
-                        label = { Text("Gradient Arc") },
-                        leadingIcon = { Icon(Icons.Default.Gradient, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilterChip(
-                        selected = colorMode == GaugeColorMode.PALETTE_COLOR,
-                        onClick = { colorMode = GaugeColorMode.PALETTE_COLOR },
-                        label = { Text("Single Accent") },
-                        leadingIcon = { Icon(Icons.Default.ColorLens, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                if (colorMode == GaugeColorMode.PALETTE_COLOR) {
-                    Spacer(Modifier.height(10.dp))
-                    Text("Select Color from Active Palette:", style = MaterialTheme.typography.labelSmall)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(14.dp))
+                    Text("Card Theme Accent", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text("Select which color from your active palette accents this card:", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -832,7 +851,10 @@ fun AddEditGaugeDialog(
                                     .size(36.dp)
                                     .clip(CircleShape)
                                     .background(color)
-                                    .clickable { paletteColorIndex = index },
+                                    .clickable {
+                                        paletteColorIndex = index
+                                        colorMode = GaugeColorMode.PALETTE_COLOR
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (paletteColorIndex == index) {
@@ -842,6 +864,125 @@ fun AddEditGaugeDialog(
                                         tint = Color.White,
                                         modifier = Modifier.size(18.dp)
                                     )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(14.dp))
+
+                    // Min and Max Limits
+                    Text("Min & Max Range", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = minText,
+                            onValueChange = { minText = it },
+                            label = { Text("Min Value") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = maxText,
+                            onValueChange = { maxText = it },
+                            label = { Text("Max Value") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = unit,
+                            onValueChange = { unit = it },
+                            label = { Text("Unit") },
+                            modifier = Modifier.width(72.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    // Quick Inverter Presets
+                    Spacer(Modifier.height(8.dp))
+                    Text("Quick Inverter Presets:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        AssistChip(
+                            onClick = { applyPreset("PV Power", "W", 0.0, 5000.0) },
+                            label = { Text("Solar 5kW", fontSize = 11.sp) }
+                        )
+                        AssistChip(
+                            onClick = { applyPreset("SOC", "%", 0.0, 100.0) },
+                            label = { Text("SOC 100%", fontSize = 11.sp) }
+                        )
+                        AssistChip(
+                            onClick = { applyPreset("Output Power", "W", 0.0, 6000.0) },
+                            label = { Text("Load 6kW", fontSize = 11.sp) }
+                        )
+                        AssistChip(
+                            onClick = { applyPreset("Grid Voltage", "V", 180.0, 260.0) },
+                            label = { Text("Grid 260V", fontSize = 11.sp) }
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // Theme Palette Color Settings
+                    Text("Theme Palette Colors", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Colors automatically sync with your selected theme palette in Themes settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = colorMode == GaugeColorMode.PALETTE_GRADIENT,
+                            onClick = { colorMode = GaugeColorMode.PALETTE_GRADIENT },
+                            label = { Text("Gradient Arc") },
+                            leadingIcon = { Icon(Icons.Default.Gradient, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = colorMode == GaugeColorMode.PALETTE_COLOR,
+                            onClick = { colorMode = GaugeColorMode.PALETTE_COLOR },
+                            label = { Text("Single Accent") },
+                            leadingIcon = { Icon(Icons.Default.ColorLens, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    if (colorMode == GaugeColorMode.PALETTE_COLOR) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("Select Color from Active Palette:", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            paletteColors.forEachIndexed { index, color ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
+                                        .clickable { paletteColorIndex = index },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (paletteColorIndex == index) {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -858,7 +999,7 @@ fun AddEditGaugeDialog(
 
                     val newGauge = CustomGauge(
                         id = initialGauge?.id ?: java.util.UUID.randomUUID().toString(),
-                        title = title.ifBlank { "Gauge Chart" },
+                        title = title.ifBlank { if (chartType == GaugeChartType.TEXT_TILE) "Telemetry Item" else "Gauge Chart" },
                         chartType = chartType,
                         valueSource = valueSource,
                         sensorTitle = sensorTitle,
@@ -866,18 +1007,149 @@ fun AddEditGaugeDialog(
                         unit = unit.ifBlank { "" },
                         minValue = finalMin,
                         maxValue = finalMax,
-                        colorMode = colorMode,
+                        colorMode = if (chartType == GaugeChartType.TEXT_TILE) GaugeColorMode.PALETTE_COLOR else colorMode,
                         paletteColorIndex = paletteColorIndex
                     )
                     onSave(newGauge)
                 }
             ) {
-                Text("Save Gauge")
+                Text(if (initialGauge == null) "Add Item" else "Save Changes")
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
+ * Dialog to manage and reorder dashboard items (gauges and text tiles).
+ */
+@Composable
+fun ManageDashboardDialog(
+    items: List<CustomGauge>,
+    onMoveUp: (Int) -> Unit,
+    onMoveDown: (Int) -> Unit,
+    onDelete: (String) -> Unit,
+    onEdit: (CustomGauge) -> Unit,
+    onAddNew: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Customize Dashboard", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Reorder, edit, or remove your visual gauges and telemetry cards.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.height(10.dp))
+
+                Box(modifier = Modifier.heightIn(max = 420.dp)) {
+                    if (items.isEmpty()) {
+                        Text(
+                            "No items on dashboard. Tap Add Item below.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    } else {
+                        androidx.compose.foundation.lazy.LazyColumn {
+                            items(items.size) { index ->
+                                val item = items[index]
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = when (item.chartType) {
+                                                GaugeChartType.TEXT_TILE -> Icons.Default.Article
+                                                GaugeChartType.HALF_PIE -> Icons.Default.PieChart
+                                                GaugeChartType.RADIAL_GAUGE -> Icons.Default.Speed
+                                            },
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                item.title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                "${when(item.chartType) {
+                                                    GaugeChartType.TEXT_TILE -> "Text"
+                                                    GaugeChartType.HALF_PIE -> "Half-Pie"
+                                                    GaugeChartType.RADIAL_GAUGE -> "Radial"
+                                                }} • ${if (item.valueSource == GaugeValueSource.INVERTER_SENSOR) item.sensorTitle else "Manual"}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.outline,
+                                                fontSize = 10.sp
+                                            )
+                                        }
+
+                                        IconButton(
+                                            onClick = { onMoveUp(index) },
+                                            enabled = index > 0,
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(
+                                            onClick = { onMoveDown(index) },
+                                            enabled = index < items.size - 1,
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(
+                                            onClick = { onEdit(item) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                                        }
+                                        IconButton(
+                                            onClick = { onDelete(item.id) },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onAddNew) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Add Item")
             }
         }
     )
