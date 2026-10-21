@@ -524,82 +524,146 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         return value
     }
 
+    private fun parseStatusInt(value: Any?): Int? {
+        return when (value) {
+            is Number -> value.toInt()
+            is String -> value.toIntOrNull()
+            else -> null
+        }
+    }
+
+    private fun isOfflineText(text: String): Boolean {
+        if (text.isEmpty()) return false
+        val lower = text.lowercase()
+        return lower.contains("off") || 
+               lower.contains("lost") || 
+               lower.contains("disconnect") || 
+               lower.contains("stop") || 
+               lower.contains("fault") || 
+               lower.contains("error") || 
+               lower.contains("down") ||
+               lower.contains("unusual")
+    }
+
+    private fun parseTimestampToMillis(rawStr: Any?): Long? {
+        if (rawStr == null) return null
+        val str = rawStr.toString().trim()
+        if (str.isBlank() || str == "null") return null
+
+        val epoch = str.toLongOrNull()
+        if (epoch != null) {
+            return if (epoch < 10_000_000_000L) epoch * 1000L else epoch
+        }
+
+        val formats = listOf(
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy/MM/dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd"
+        )
+        for (fmt in formats) {
+            try {
+                val sdf = SimpleDateFormat(fmt, Locale.US)
+                val parsed = sdf.parse(str)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    private fun extractLatestTimestampMs(
+        devJson: JSONObject,
+        deviceSummary: JSONObject?,
+        collector: JSONObject?,
+        dataPoints: List<DataPoint>
+    ): Long? {
+        for (dp in dataPoints) {
+            val title = dp.title.lowercase()
+            if (title.contains("timestamp") || title.contains("date") || title.contains("time")) {
+                val ms = parseTimestampToMillis(dp.value)
+                if (ms != null) return ms
+            }
+        }
+        for (key in listOf("utime", "time", "last_time", "datatime", "update_time")) {
+            val ms = parseTimestampToMillis(devJson.opt(key))
+            if (ms != null) return ms
+        }
+        if (deviceSummary != null) {
+            for (key in listOf("utime", "time", "last_time", "datatime", "update_time")) {
+                val ms = parseTimestampToMillis(deviceSummary.opt(key))
+                if (ms != null) return ms
+            }
+        }
+        if (collector != null) {
+            for (key in listOf("utime", "time", "last_time")) {
+                val ms = parseTimestampToMillis(collector.opt(key))
+                if (ms != null) return ms
+            }
+        }
+        return null
+    }
+
     private fun determineOnlineStatus(
         devJson: JSONObject,
         deviceSummary: JSONObject?,
         collector: JSONObject?,
         lastData: List<DataPoint>
     ): Boolean {
-        // 1. If device has current telemetry data received from the server, it is online!
-        if (lastData.isNotEmpty()) {
-            return true
+        // 1. Check Collector lost/status
+        if (collector != null) {
+            val colLost = parseStatusInt(collector.opt("lost"))
+            val colStatus = parseStatusInt(collector.opt("status"))
+            if (colLost == 1 || (colStatus != null && colStatus <= 0)) {
+                return false
+            }
         }
 
-        // 2. Check devJson (from queryCollectorDevices)
-        val devLost = when (val l = devJson.opt("lost")) {
-            is Number -> l.toInt()
-            is String -> l.toIntOrNull()
-            else -> null
-        }
-        if (devLost == 0) return true
+        // 2. Check Device JSON (queryCollectorDevices)
+        val devLost = parseStatusInt(devJson.opt("lost"))
         if (devLost == 1) return false
 
-        val devStatus = when (val s = devJson.opt("status")) {
-            is Number -> s.toInt()
-            is String -> s.toIntOrNull()
-            else -> null
-        }
-        if (devStatus != null) {
-            return devStatus > 0
-        }
+        val devStatus = parseStatusInt(devJson.opt("status"))
+        if (devStatus != null && devStatus <= 0) return false
 
-        // 3. Check deviceSummary (from webQueryDeviceEs)
+        val devStatusText = devJson.optString("statusText").ifEmpty { devJson.optString("status_text") }
+        if (isOfflineText(devStatusText)) return false
+
+        // 3. Check Device Summary (webQueryDeviceEs)
         if (deviceSummary != null) {
-            val lost = when (val l = deviceSummary.opt("lost")) {
-                is Number -> l.toInt()
-                is String -> l.toIntOrNull()
-                else -> null
-            }
-            if (lost == 0) return true
-            if (lost == 1) return false
+            val summaryLost = parseStatusInt(deviceSummary.opt("lost"))
+            if (summaryLost == 1) return false
 
-            val status = when (val s = deviceSummary.opt("status")) {
-                is Number -> s.toInt()
-                is String -> s.toIntOrNull()
-                else -> null
-            }
-            if (status != null) {
-                return status > 0
-            }
+            val summaryStatus = parseStatusInt(deviceSummary.opt("status"))
+            if (summaryStatus != null && summaryStatus <= 0) return false
 
-            val statusText = deviceSummary.optString("statusText").ifEmpty { deviceSummary.optString("status_text") }
-            if (statusText.isNotEmpty()) {
-                if (statusText.contains("off", ignoreCase = true) || statusText.contains("lost", ignoreCase = true) || statusText.contains("disconnect", ignoreCase = true)) {
-                    return false
-                }
-                if (statusText.contains("on", ignoreCase = true) || statusText.contains("norm", ignoreCase = true) || statusText.contains("work", ignoreCase = true)) {
-                    return true
-                }
+            val summaryStatusText = deviceSummary.optString("statusText").ifEmpty { deviceSummary.optString("status_text") }
+            if (isOfflineText(summaryStatusText)) return false
+        }
+
+        // 4. Check Data Freshness (stale data older than 15 minutes = offline)
+        val timestampMs = extractLatestTimestampMs(devJson, deviceSummary, collector, lastData)
+        if (timestampMs != null) {
+            val ageMs = System.currentTimeMillis() - timestampMs
+            if (ageMs > 15 * 60 * 1000L) {
+                return false
             }
         }
 
-        // 4. Check collector status
+        // 5. Positive Confirmation check
+        if (devLost == 0 || devStatus != null) return true
+        if (deviceSummary != null) {
+            val summaryLost = parseStatusInt(deviceSummary.opt("lost"))
+            val summaryStatus = parseStatusInt(deviceSummary.opt("status"))
+            if (summaryLost == 0 || (summaryStatus != null && summaryStatus > 0)) return true
+        }
         if (collector != null) {
-            val colLost = when (val l = collector.opt("lost")) {
-                is Number -> l.toInt()
-                is String -> l.toIntOrNull()
-                else -> null
-            }
-            if (colLost == 1) return false
-            val colStatus = when (val s = collector.opt("status")) {
-                is Number -> s.toInt()
-                is String -> s.toIntOrNull()
-                else -> null
-            }
-            if (colStatus != null && colStatus > 0) return true
+            val colLost = parseStatusInt(collector.opt("lost"))
+            val colStatus = parseStatusInt(collector.opt("status"))
+            if (colLost == 0 || (colStatus != null && colStatus > 0)) return true
         }
 
-        return true
+        // If no explicit online status is confirmed or data is stale/absent, default to false
+        return lastData.isNotEmpty() && (timestampMs == null || (System.currentTimeMillis() - timestampMs) <= 15 * 60 * 1000L)
     }
 
     suspend fun loadDevices(): Result<List<DeviceInfo>> = withContext(Dispatchers.IO) {
@@ -656,17 +720,7 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
                                     val isOnline = determineOnlineStatus(devJson, deviceSummary, collector, lastData)
                                     Log.d("DeviceRepository", "Created DeviceInfo: SN=$sn, PN=$pn, DevCode=$devcode, addr=$devaddr, isOnline=$isOnline")
                                     
-                                    val timestampStr = mergedData.find { it.title.equals("Timestamp", ignoreCase = true) || it.title.equals("Date Time", ignoreCase = true) }?.value?.toString()
-                                    val lastDataTime = try {
-                                        if (timestampStr != null) {
-                                            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
-                                            sdf.parse(timestampStr)?.time ?: System.currentTimeMillis()
-                                        } else if (lastData.isNotEmpty()) {
-                                            System.currentTimeMillis()
-                                        } else null
-                                    } catch (_: Exception) { 
-                                        if (lastData.isNotEmpty()) System.currentTimeMillis() else null
-                                    }
+                                    val lastDataTime = extractLatestTimestampMs(devJson, deviceSummary, collector, mergedData)
 
                                     DeviceInfo(
                                         serialNumber = sn, 
