@@ -14,8 +14,8 @@ android {
         applicationId = "com.dessmonitor.smartess"
         minSdk = 26
         targetSdk = 34
-        versionCode = 224
-        versionName = "2.3.0"
+        versionCode = 225
+        versionName = "2.2.5"
         
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

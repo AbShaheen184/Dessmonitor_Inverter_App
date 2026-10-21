@@ -532,19 +532,6 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         }
     }
 
-    private fun isOfflineText(text: String): Boolean {
-        if (text.isEmpty()) return false
-        val lower = text.lowercase()
-        return lower.contains("off") || 
-               lower.contains("lost") || 
-               lower.contains("disconnect") || 
-               lower.contains("stop") || 
-               lower.contains("fault") || 
-               lower.contains("error") || 
-               lower.contains("down") ||
-               lower.contains("unusual")
-    }
-
     private fun parseTimestampToMillis(rawStr: Any?): Long? {
         if (rawStr == null) return null
         val str = rawStr.toString().trim()
@@ -609,61 +596,58 @@ class DeviceRepository(private val context: Context, private val alarmDao: Alarm
         collector: JSONObject?,
         lastData: List<DataPoint>
     ): Boolean {
-        // 1. Check Collector lost/status
+        // 1. Explicit Lost check (Collector)
         if (collector != null) {
             val colLost = parseStatusInt(collector.opt("lost"))
-            val colStatus = parseStatusInt(collector.opt("status"))
-            if (colLost == 1 || (colStatus != null && colStatus <= 0)) {
+            if (colLost == 1) return false
+            if (colLost == 0) return true
+        }
+
+        // 2. Explicit Lost check (Device JSON)
+        val devLost = parseStatusInt(devJson.opt("lost"))
+        if (devLost == 1) return false
+        if (devLost == 0) return true
+
+        val devStatusText = devJson.optString("statusText").ifEmpty { devJson.optString("status_text") }
+        if (devStatusText.isNotEmpty()) {
+            val lower = devStatusText.lowercase()
+            if (lower.contains("off") || lower.contains("lost") || lower.contains("disconnect")) {
                 return false
+            }
+            if (lower.contains("on") || lower.contains("norm") || lower.contains("work") || lower.contains("run")) {
+                return true
             }
         }
 
-        // 2. Check Device JSON (queryCollectorDevices)
-        val devLost = parseStatusInt(devJson.opt("lost"))
-        if (devLost == 1) return false
-
-        val devStatus = parseStatusInt(devJson.opt("status"))
-        if (devStatus != null && devStatus <= 0) return false
-
-        val devStatusText = devJson.optString("statusText").ifEmpty { devJson.optString("status_text") }
-        if (isOfflineText(devStatusText)) return false
-
-        // 3. Check Device Summary (webQueryDeviceEs)
+        // 3. Explicit Lost check (Device Summary)
         if (deviceSummary != null) {
             val summaryLost = parseStatusInt(deviceSummary.opt("lost"))
             if (summaryLost == 1) return false
-
-            val summaryStatus = parseStatusInt(deviceSummary.opt("status"))
-            if (summaryStatus != null && summaryStatus <= 0) return false
+            if (summaryLost == 0) return true
 
             val summaryStatusText = deviceSummary.optString("statusText").ifEmpty { deviceSummary.optString("status_text") }
-            if (isOfflineText(summaryStatusText)) return false
+            if (summaryStatusText.isNotEmpty()) {
+                val lower = summaryStatusText.lowercase()
+                if (lower.contains("off") || lower.contains("lost") || lower.contains("disconnect")) {
+                    return false
+                }
+                if (lower.contains("on") || lower.contains("norm") || lower.contains("work") || lower.contains("run")) {
+                    return true
+                }
+            }
         }
 
-        // 4. Check Data Freshness (stale data older than 15 minutes = offline)
+        // 4. Timestamp freshness check (if data is older than 12 hours, consider offline)
         val timestampMs = extractLatestTimestampMs(devJson, deviceSummary, collector, lastData)
         if (timestampMs != null) {
             val ageMs = System.currentTimeMillis() - timestampMs
-            if (ageMs > 15 * 60 * 1000L) {
+            if (ageMs > 12 * 60 * 60 * 1000L) { // 12 hours threshold
                 return false
             }
         }
 
-        // 5. Positive Confirmation check
-        if (devLost == 0 || devStatus != null) return true
-        if (deviceSummary != null) {
-            val summaryLost = parseStatusInt(deviceSummary.opt("lost"))
-            val summaryStatus = parseStatusInt(deviceSummary.opt("status"))
-            if (summaryLost == 0 || (summaryStatus != null && summaryStatus > 0)) return true
-        }
-        if (collector != null) {
-            val colLost = parseStatusInt(collector.opt("lost"))
-            val colStatus = parseStatusInt(collector.opt("status"))
-            if (colLost == 0 || (colStatus != null && colStatus > 0)) return true
-        }
-
-        // If no explicit online status is confirmed or data is stale/absent, default to false
-        return lastData.isNotEmpty() && (timestampMs == null || (System.currentTimeMillis() - timestampMs) <= 15 * 60 * 1000L)
+        // 5. Default: If device is loaded and not explicitly flagged as lost, it's online
+        return true
     }
 
     suspend fun loadDevices(): Result<List<DeviceInfo>> = withContext(Dispatchers.IO) {

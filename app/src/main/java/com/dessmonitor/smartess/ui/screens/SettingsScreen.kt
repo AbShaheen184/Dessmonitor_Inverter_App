@@ -2,7 +2,9 @@ package com.dessmonitor.smartess.ui.screens
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1024,6 +1026,27 @@ fun AboutSettingsContent() {
     val releasesUrl = "https://github.com/AbShaheen184/Dessmonitor_Inverter_App/releases"
     val haDessmonitorUrl = "https://github.com/andreas-glaser/ha-dessmonitor"
 
+    val appVersionText = remember(context) {
+        try {
+            val pkgInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getPackageInfo(context.packageName, 0)
+            }
+            val vName = pkgInfo.versionName ?: "2.2.5"
+            val vCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pkgInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                pkgInfo.versionCode.toLong()
+            }
+            "Version $vName (Build $vCode)"
+        } catch (_: Exception) {
+            "Version 2.2.5 (Build 225)"
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
@@ -1069,7 +1092,7 @@ fun AboutSettingsContent() {
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                     ) {
                         Text(
-                            "Version 2.3.0 (Build 224)",
+                            appVersionText,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
